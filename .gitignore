@@ -1,0 +1,7 @@
+/target/
+/data/
+/saves/
+/captures/
+/tmp/
+*.blend1
+__pycache__/

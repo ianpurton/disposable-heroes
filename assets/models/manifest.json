@@ -1,0 +1,28 @@
+{
+  "generator": "Blender Python; seed 1993",
+  "units": "meters; Blender Z-up converted to glTF Y-up",
+  "animations": [
+    "Idle",
+    "Run",
+    "Fire",
+    "Throw",
+    "Rocket",
+    "Swim",
+    "Death"
+  ],
+  "assets": [
+    "bridge.glb",
+    "bunker.glb",
+    "bush.glb",
+    "crate.glb",
+    "enemy.glb",
+    "grass.glb",
+    "hut.glb",
+    "jeep.glb",
+    "palm.glb",
+    "rock.glb",
+    "soldier.glb",
+    "tree.glb",
+    "wreck.glb"
+  ]
+}

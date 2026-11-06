@@ -1,0 +1,35 @@
+name: Build and validate
+on: [push, pull_request]
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: python3 scripts/fetch_fixtures.py
+      - run: cargo fmt --check
+      - run: cargo test --locked --no-default-features
+      - run: cargo build --locked --release --target x86_64-unknown-linux-gnu
+      - run: mkdir -p dist && cp target/x86_64-unknown-linux-gnu/release/disposable-heroes dist/ && cp -r assets scripts tests README.md docs dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: disposable-heroes-linux
+          path: dist/
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: disposable-heroes-windows
+          path: |
+            target/x86_64-pc-windows-msvc/release/disposable-heroes.exe
+            assets/
+            scripts/fetch_fixtures.py
+            tests/fixtures-manifest.json
+            README.md
