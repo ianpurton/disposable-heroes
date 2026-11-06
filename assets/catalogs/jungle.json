@@ -1,0 +1,450 @@
+{
+  "tileset": "junbase/junsub0",
+  "reference": "OpenFodder/data 3feb494023e4d008f8d7b548167e3e9ad31bad29; decoded planar BLK + palette; all first-mission blocked formations depict leafy thickets",
+  "tiles": {
+    "0": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "1": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "3": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "4": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "7": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "8": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "9": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "10": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "11": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "12": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "13": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "14": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "15": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "16": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "18": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "19": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "20": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "21": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "22": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "24": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "25": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "31": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "38": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "40": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "41": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "42": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "44": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "45": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "46": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "47": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "48": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "49": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "50": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "51": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "58": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "59": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "60": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "61": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "62": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "63": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "65": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "66": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "67": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "68": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "69": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "70": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "71": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "80": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "81": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "82": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "83": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "84": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "85": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "86": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "87": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "89": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "90": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "93": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "101": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "102": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "103": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "104": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "105": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "106": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "109": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "111": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "112": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "113": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "114": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "121": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "122": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "123": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "125": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "126": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "127": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "128": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "129": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "130": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "131": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "133": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "134": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "140": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "141": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "142": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "143": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "144": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "145": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "149": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "153": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "160": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "163": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "164": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "170": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "173": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "180": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "183": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "184": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "185": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "199": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "202": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "203": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "204": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "205": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "209": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "210": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "222": {
+      "visual": "jungle_thicket",
+      "reviewed": true
+    },
+    "223": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "224": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "225": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "228": {
+      "visual": "grass",
+      "reviewed": true
+    },
+    "229": {
+      "visual": "grass",
+      "reviewed": true
+    }
+  }
+}

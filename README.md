@@ -15,6 +15,7 @@ Generated models and audio are included. Regenerate them with:
 
 ```sh
 blender -b -t 2 --python scripts/generate_assets.py
+blender -b -t 2 --python scripts/generate_jungle.py
 python3 scripts/generate_audio.py
 ```
 
@@ -33,6 +34,18 @@ cargo run --no-default-features --bin map-inspect -- data/Data/AmigaTheOne/mapm2
 ```
 
 The tileset directory must contain the base/subset `.hit`, `.bht` and `.swp` files named by the map. Original tile graphics are replaced by generated 3D assets. No editor modifications are required. Unsupported sprite IDs or objectives are reported before play; the inspector can examine other environments.
+
+## First-mission polish
+
+The first mission now uses reviewed original tile IDs to place dense jungle thickets. Soldiers route around obstacles and follow their leader through gaps. Enemies check visibility and react according to campaign aggression. Shot effects align with aim, with upper-body firing and throwing animation, impacts and movement feedback. See [the reference and acceptance notes](docs/first-mission.md).
+
+```sh
+python3 scripts/reference_tiles.py
+cargo run --release -- --fresh --benchmark --benchmark-seconds 20
+cargo run -- --fresh --combat-preview
+```
+
+The benchmark writes `tmp/benchmark.json`; the combat preview writes `tmp/combat.png`. Performance numbers from offscreen container rendering do not replace host playtesting.
 
 ## Validation
 

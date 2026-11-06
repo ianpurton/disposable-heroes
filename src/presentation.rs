@@ -56,6 +56,7 @@ struct Particle {
 #[derive(Resource)]
 struct Library {
     water: Handle<WaterMaterial>,
+    ground: Handle<Image>,
     animations: HashMap<
         (bool, String),
         (
@@ -80,19 +81,63 @@ struct CameraRig {
 }
 #[derive(Component)]
 struct AnimationState(usize);
+#[derive(Resource, Default)]
+struct OrderFeedback(Option<(Point, bool, f32)>);
+#[derive(Component)]
+struct Foliage {
+    height: f32,
+}
+#[derive(Resource)]
+struct Benchmark {
+    start: std::time::Instant,
+    samples: Vec<f64>,
+    max_entities: usize,
+    max_meshes: usize,
+    saved: bool,
+    source: Option<Battle>,
+    repetitions: u32,
+}
+impl Default for Benchmark {
+    fn default() -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            samples: vec![],
+            max_entities: 0,
+            max_meshes: 0,
+            saved: false,
+            source: None,
+            repetitions: 0,
+        }
+    }
+}
 pub struct BattlefieldPlugin;
 impl Plugin for BattlefieldPlugin {
     fn build(&self, app: &mut App) {
+        if app.world().resource::<Game>().benchmark {
+            app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+        }
         app.add_plugins((
             FrameTimeDiagnosticsPlugin::default(),
             MaterialPlugin::<WaterMaterial>::default(),
         ))
+        .init_resource::<OrderFeedback>()
+        .init_resource::<Benchmark>()
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, input.after(bevy::input::InputSystems))
         .add_systems(FixedUpdate, simulate)
         .add_systems(
             Update,
-            (reload, unit_views, animate, particles, hud, capture).chain(),
+            (
+                reload,
+                unit_views,
+                animate,
+                particles,
+                foliage_visibility,
+                hud,
+                capture,
+                benchmark,
+            )
+                .chain(),
         );
     }
 }
@@ -106,8 +151,21 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
 ) {
     let models = [
-        "soldier", "enemy", "palm", "tree", "bush", "grass", "rock", "hut", "bunker", "jeep",
-        "wreck", "bridge", "crate",
+        "thicket",
+        "thicket_edge",
+        "soldier",
+        "enemy",
+        "palm",
+        "tree",
+        "bush",
+        "grass",
+        "rock",
+        "hut",
+        "bunker",
+        "jeep",
+        "wreck",
+        "bridge",
+        "crate",
     ]
     .into_iter()
     .map(|name| {
@@ -118,6 +176,17 @@ fn setup(
     })
     .collect();
     let library = Library {
+        ground: assets
+            .load_builder()
+            .with_settings(|s: &mut bevy::image::ImageLoaderSettings| {
+                s.sampler =
+                    bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
+                        address_mode_u: bevy::image::ImageAddressMode::Repeat,
+                        address_mode_v: bevy::image::ImageAddressMode::Repeat,
+                        ..default()
+                    });
+            })
+            .load("textures/jungle_ground.png"),
         water: water.add(WaterMaterial {
             settings: Vec4::new(0.035, 0.18, 0.16, 0.),
         }),
@@ -182,8 +251,8 @@ fn setup(
         .id();
     if game.smoke {
         let mut image = Image::new_target_texture(
-            1440,
-            900,
+            1920,
+            1080,
             bevy::render::render_resource::TextureFormat::Bgra8UnormSrgb,
             None,
         );
@@ -333,46 +402,38 @@ fn model(commands: &mut Commands, lib: &Library, name: &str, p: Vec3, scale: f32
 fn terrain_mesh(b: &Battle, kind: u8) -> Mesh {
     let mut pos = vec![];
     let mut norms = vec![];
+    let mut uv = vec![];
     let mut colors = vec![];
     let mut indices = vec![];
-    // Two-pixel cells exactly follow the original BHT resolution, merged into one mesh per terrain class.
+    let terrain_kind = |x: usize, y: usize| match b.map.terrain_at(x as f32, y as f32) {
+        5 | 6 => 1,
+        3 => 2,
+        _ => 0,
+    };
     for y in (0..b.map.height * 16).step_by(2) {
-        for x in (0..b.map.width * 16).step_by(2) {
-            let t = b.map.terrain_at(x as f32, y as f32);
-            let k = if matches!(t, 5 | 6) {
-                1
-            } else if t == 3 {
-                2
-            } else {
-                0
-            };
-            if k != kind {
+        let mut x = 0;
+        while x < b.map.width * 16 {
+            if terrain_kind(x, y) != kind {
+                x += 2;
                 continue;
             }
+            let begin = x;
+            x += 2;
+            while x < b.map.width * 16 && x - begin < 32 && terrain_kind(x, y) == kind {
+                x += 2;
+            }
             let base = pos.len() as u32;
-            let h = if k == 1 { -0.10 } else { 0. };
-            let variation =
-                0.025 + (x as f32 * 0.045).sin() * 0.012 + (y as f32 * 0.037).cos() * 0.012;
-            let c = if k == 1 {
-                [
-                    0.075 + variation * 0.2,
-                    0.28 + variation,
-                    0.25 + variation,
-                    1.,
-                ]
-            } else if k == 2 {
-                [0.32 + variation, 0.33 + variation, 0.19 + variation, 1.]
-            } else {
-                [
-                    0.19 + variation,
-                    0.29 + variation,
-                    0.10 + variation * 0.5,
-                    1.,
-                ]
+            let h = if kind == 1 { -0.10 } else { 0. };
+            let variation = (begin as f32 * 0.045).sin() * 0.008 + (y as f32 * 0.037).cos() * 0.008;
+            let c = match kind {
+                1 => [0.035, 0.17, 0.14, 1.],
+                2 => [0.035, 0.085, 0.018, 1.],
+                _ => [0.11 + variation, 0.20 + variation, 0.035 + variation, 1.],
             };
-            for (dx, dy) in [(0, 0), (0, 2), (2, 2), (2, 0)] {
-                pos.push([(x + dx) as f32 * SCALE, h, (y + dy) as f32 * SCALE]);
+            for (xx, yy) in [(begin, y), (begin, y + 2), (x, y + 2), (x, y)] {
+                pos.push([xx as f32 * SCALE, h, yy as f32 * SCALE]);
                 norms.push([0., 1., 0.]);
+                uv.push([xx as f32 / 16., yy as f32 / 16.]);
                 colors.push(c);
             }
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -384,6 +445,7 @@ fn terrain_mesh(b: &Battle, kind: u8) -> Mesh {
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, norms)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
     .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
     .with_inserted_indices(Indices::U32(indices))
 }
@@ -397,6 +459,11 @@ fn spawn_level(
     for kind in 0..3 {
         let material = materials.add(StandardMaterial {
             base_color: Color::WHITE,
+            base_color_texture: if kind != 1 {
+                Some(lib.ground.clone())
+            } else {
+                None
+            },
             perceptual_roughness: if kind == 1 { 0.19 } else { 0.95 },
             metallic: if kind == 1 { 0.18 } else { 0. },
             ..default()
@@ -419,6 +486,28 @@ fn spawn_level(
                 Transform::default(),
             ));
         }
+    }
+    let catalog = disposable_heroes::environment::JungleCatalog::bundled();
+    for patch in disposable_heroes::environment::thickets(&b.map, &catalog) {
+        let center = world(Point::new(
+            patch.x + patch.width * 0.5,
+            patch.y + patch.depth * 0.5,
+        ));
+        let height = (patch.width.min(patch.depth) * SCALE * 0.7).clamp(0.12, 0.85);
+        let name = if (patch.x as u32 + patch.y as u32) % 3 == 0 {
+            "thicket_edge"
+        } else {
+            "thicket"
+        };
+        let id = model(commands, lib, name, center, 1.);
+        commands.entity(id).insert((
+            Foliage { height },
+            Transform::from_translation(center).with_scale(Vec3::new(
+                patch.width * SCALE,
+                height,
+                patch.depth * SCALE,
+            )),
+        ));
     }
     // Deterministic ground dressing: visual only, no collision or changes to imported objects.
     for y in (0..b.map.height * 16).step_by(9) {
@@ -458,13 +547,13 @@ fn spawn_level(
     }
     // Tall peripheral planting frames the miniature without changing the map.
     for i in 0..b.map.width {
-        if i % 2 == 0 {
+        if i % 3 == 0 {
             for z in [-1.5, b.map.height as f32 * 2. + 1.5] {
                 model(
                     commands,
                     lib,
                     if i % 3 == 0 { "tree" } else { "palm" },
-                    Vec3::new(i as f32 * 2., 0., z),
+                    Vec3::new(i as f32 * 2. + (i as f32 * 1.7).sin() * 0.7, 0., z),
                     1.1,
                 );
             }
@@ -670,8 +759,45 @@ fn input(
 }
 fn simulate(mut game: ResMut<Game>, time: Res<Time<Fixed>>) {
     let cmds = std::mem::take(&mut game.queue);
+    if (game.benchmark || game.combat_preview) && game.briefing {
+        game.briefing = false;
+        let goal = Point::new(
+            game.battle.map.width as f32 * 8.,
+            game.battle.map.height as f32 * 5.,
+        );
+        game.battle.command(Command::Move(goal));
+    }
     if game.briefing {
         return;
+    }
+    if game.benchmark || game.combat_preview {
+        let leader = game
+            .battle
+            .units
+            .iter()
+            .find(|u| game.battle.selected_unit(u))
+            .map(|u| (u.pos, u.path.is_empty()));
+        let target = leader.and_then(|(p, _)| {
+            game.battle
+                .units
+                .iter()
+                .filter(|u| u.enemy && u.alive)
+                .min_by(|a, b| p.distance(a.pos).total_cmp(&p.distance(b.pos)))
+                .map(|u| u.pos)
+        });
+        if let (Some((p, idle)), Some(target)) = (leader, target) {
+            let visible = disposable_heroes::simulation::line_of_sight(
+                &game.battle.map,
+                &game.battle.buildings,
+                p,
+                target,
+            );
+            game.battle
+                .command(Command::Aim(if visible { Some(target) } else { None }));
+            if !visible && idle {
+                game.battle.command(Command::Move(target));
+            }
+        }
     }
     for c in cmds {
         game.battle.command(c);
@@ -703,6 +829,7 @@ fn reload(
                 commands.entity(e).despawn();
             }
             let mut battle = Battle::new(map, 1993);
+            battle.tuning.aggression(&game.aggression[game.index]);
             battle.kill_objective = game.rules[game.index].0;
             battle.destroy_objective = game.rules[game.index].1;
             assign_roster(&mut battle, &game.snapshot);
@@ -728,10 +855,31 @@ fn unit_views(
     mut buildings: Query<(Entity, &mut BuildingView), Without<UnitView>>,
     pickups: Query<(Entity, &PickupView)>,
     mut gizmos: Gizmos,
+    mut feedback: ResMut<OrderFeedback>,
     time: Res<Time<Fixed>>,
     mut ground: Query<(&TerrainView, &mut Mesh3d)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
+    if let Some((point, accepted, _)) = feedback.0 {
+        let p = world(point) + Vec3::Y * 0.06;
+        let color = if accepted {
+            Color::srgb(0.9, 0.78, 0.2)
+        } else {
+            Color::srgb(1., 0.15, 0.08)
+        };
+        gizmos.circle(
+            Isometry3d::new(p, Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+            0.45,
+            color,
+        );
+        if !accepted {
+            gizmos.line(
+                p + Vec3::new(-0.3, 0., -0.3),
+                p + Vec3::new(0.3, 0., 0.3),
+                color,
+            );
+        }
+    }
     let mut present = std::collections::HashSet::new();
     for (_, view, mut t) in &mut units {
         present.insert(view.0);
@@ -743,13 +891,13 @@ fn unit_views(
             t.translation = world(p);
             if !u.alive {
                 t.translation.y = 0.05;
-                t.rotation = Quat::from_rotation_z(1.4);
+
                 continue;
             }
             let target = if u.fire { u.aim } else { u.target };
             let delta = world(target) - world(u.pos);
             if delta.length_squared() > 0.01 {
-                t.rotation = Quat::from_rotation_y((-delta.x).atan2(-delta.z));
+                t.rotation = soldier_rotation(delta);
             }
             if game.battle.selected_unit(u) {
                 gizmos.circle(
@@ -822,16 +970,41 @@ fn unit_views(
     let mut boom_sound = false;
     for effect in effects {
         let (p, count, explosion) = match effect {
-            Effect::Shot(p) => {
+            Effect::Shot {
+                origin,
+                direction,
+                weapon,
+            } => {
                 shot_sound = true;
-                (p, 1, false)
+                let muzzle = world(origin)
+                    + Vec3::Y * 0.8
+                    + (world(direction) - world(origin)).normalize_or_zero() * 0.65;
+                commands.spawn((
+                    LevelEntity,
+                    Mesh3d(lib.sphere.clone()),
+                    MeshMaterial3d(lib.fire.clone()),
+                    Transform::from_translation(muzzle).with_scale(Vec3::splat(
+                        if weapon == Weapon::Rifle { 0.10 } else { 0.20 },
+                    )),
+                    Particle {
+                        velocity: Vec3::ZERO,
+                        remaining: 0.06,
+                        total: 0.06,
+                    },
+                ));
+                continue;
+            }
+            Effect::Impact(p) => (p, 3, false),
+            Effect::Order { position, accepted } => {
+                feedback.0 = Some((position, accepted, 1.2));
+                continue;
             }
             Effect::Explosion(p) => {
                 boom_sound = true;
                 (p, 28, true)
             }
             Effect::Death(p) => (p, 5, false),
-            Effect::Pickup(_) => continue,
+            Effect::Pickup(p) => (p, 8, false),
         };
         for i in 0..count {
             let a = i as f32 * 2.399;
@@ -875,9 +1048,56 @@ fn animate(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     parents: Query<&ChildOf>,
     views: Query<&UnitView>,
-    mut players: Query<(Entity, &mut AnimationPlayer, Option<&AnimationState>)>,
+    bones: Query<(&Name, &bevy::animation::AnimationTargetId)>,
+    mut players: Query<(
+        Entity,
+        &mut AnimationPlayer,
+        Option<&AnimationState>,
+        Option<&mut AnimationTransitions>,
+    )>,
 ) {
-    for (entity, mut player, state) in &mut players {
+    for faction in [false, true] {
+        if lib.animations.contains_key(&(faction, "Idle".into())) {
+            continue;
+        }
+        let Some(gltf) = gltfs.get(if faction { &lib.enemy } else { &lib.soldier }) else {
+            continue;
+        };
+        let mut graph = AnimationGraph::new();
+        let root = graph.root;
+        for (name, id) in &bones {
+            if matches!(name.as_str(), "Root" | "LeftLeg" | "RightLeg") {
+                graph.add_target_to_mask_group(*id, 0);
+            } else if matches!(name.as_str(), "Head" | "LeftArm" | "RightArm") {
+                graph.add_target_to_mask_group(*id, 1);
+            }
+        }
+        let mut indices = vec![];
+        for name in [
+            "Idle", "Run", "Swim", "Death", "Fire", "Throw", "Rocket", "__lower",
+        ] {
+            let source = if name == "__lower" { "Idle" } else { name };
+            if let Some(clip) = gltf.named_animations.get(source) {
+                let mask = if name == "__lower" {
+                    2
+                } else if matches!(name, "Fire" | "Throw" | "Rocket") {
+                    1
+                } else {
+                    0
+                };
+                indices.push((
+                    name.to_string(),
+                    graph.add_clip_with_mask(clip.clone(), mask, 1., root),
+                ));
+            }
+        }
+        let handle = graphs.add(graph);
+        for (name, index) in indices {
+            lib.animations
+                .insert((faction, name), (handle.clone(), index));
+        }
+    }
+    for (entity, mut player, state, transitions) in &mut players {
         let mut root = entity;
         let mut unit = None;
         for _ in 0..12 {
@@ -895,44 +1115,63 @@ fn animate(
         };
         let name = if !u.alive {
             "Death"
+        } else if let Some((weapon, _)) = u.pose {
+            match weapon {
+                Weapon::Grenade => "Throw",
+                Weapon::Rocket => "Rocket",
+                Weapon::Rifle => "Fire",
+            }
         } else if u.fire {
             "Fire"
+        } else if matches!(game.battle.map.terrain_at(u.pos.x, u.pos.y), 5 | 6)
+            && u.pos.distance(u.previous) > 0.01
+        {
+            "Swim"
         } else if u.pos.distance(u.previous) > 0.01 {
             "Run"
         } else {
             "Idle"
         };
-        let Some(gltf) = gltfs.get(if u.enemy { &lib.enemy } else { &lib.soldier }) else {
-            continue;
-        };
-        let Some(clip) = gltf.named_animations.get(name) else {
-            continue;
-        };
         let key = match name {
             "Death" => 3,
             "Fire" => 2,
             "Run" => 1,
+            "Throw" => 4,
+            "Rocket" => 5,
+            "Swim" => 6,
             _ => 0,
         };
         if state.is_some_and(|s| s.0 == key) {
             continue;
         }
-        let (handle, index) = lib
-            .animations
-            .entry((u.enemy, name.to_string()))
-            .or_insert_with(|| {
-                let (graph, index) = AnimationGraph::from_clip(clip.clone());
-                (graphs.add(graph), index)
-            })
-            .clone();
-        commands
-            .entity(entity)
-            .insert((AnimationGraphHandle(handle), AnimationState(key)));
-        player.stop_all();
-        let active = player.play(index);
-        if name != "Death" {
-            active.repeat();
+        let Some((handle, index)) = lib.animations.get(&(u.enemy, name.into())).cloned() else {
+            continue;
+        };
+        if let Some(mut transitions) = transitions {
+            let active = transitions.play(
+                &mut player,
+                index,
+                std::time::Duration::from_millis(if name == "Death" { 40 } else { 100 }),
+            );
+            if !matches!(name, "Death" | "Throw" | "Rocket") {
+                active.repeat();
+            } else {
+                active.set_speed(if name == "Throw" { 1.5 } else { 1. });
+            }
+            if let Some((_, lower)) = lib.animations.get(&(u.enemy, "__lower".into())) {
+                if matches!(name, "Fire" | "Throw" | "Rocket") {
+                    player.play(*lower).repeat();
+                } else {
+                    player.stop(*lower);
+                }
+            }
+        } else {
+            commands
+                .entity(entity)
+                .insert((AnimationGraphHandle(handle), AnimationTransitions::new()));
+            player.play(index).repeat();
         }
+        commands.entity(entity).insert(AnimationState(key));
     }
 }
 fn particles(
@@ -940,10 +1179,17 @@ fn particles(
     time: Res<Time>,
     lib: Res<Library>,
     mut water: ResMut<Assets<WaterMaterial>>,
+    mut feedback: ResMut<OrderFeedback>,
     mut q: Query<(Entity, &mut Particle, &mut Transform)>,
 ) {
     if let Some(mut material) = water.get_mut(&lib.water) {
         material.settings.w = time.elapsed_secs();
+    }
+    if let Some((_, _, remaining)) = &mut feedback.0 {
+        *remaining -= time.delta_secs();
+        if *remaining <= 0. {
+            feedback.0 = None;
+        }
     }
     for (e, mut p, mut t) in &mut q {
         p.remaining -= time.delta_secs();
@@ -953,7 +1199,11 @@ fn particles(
         }
         t.translation += p.velocity * time.delta_secs();
         p.velocity *= 1. - time.delta_secs() * 1.5;
-        t.scale = Vec3::splat(0.1 + (1. - p.remaining / p.total) * 0.7);
+        if p.total > 0.1 {
+            t.scale = Vec3::splat(
+                (0.08 + (1. - p.remaining / p.total) * 0.45) * (p.remaining / 0.25).min(1.),
+            );
+        }
     }
 }
 fn button(commands: &mut Commands, label: &str, parent: Entity) -> Entity {
@@ -1130,16 +1380,20 @@ fn capture(
     offscreen: Option<Res<Offscreen>>,
 ) {
     game.frames += 1;
-    if game.screenshot || game.smoke && game.frames == 360 {
+    if game.screenshot || game.smoke && !game.benchmark && game.frames == 360 {
         let _ = std::fs::create_dir_all("tmp");
         commands
             .spawn(offscreen.map_or_else(Screenshot::primary_window, |target| {
                 Screenshot::image(target.0.clone())
             }))
-            .observe(save_to_disk("tmp/battlefield.png"));
+            .observe(save_to_disk(if game.combat_preview {
+                "tmp/combat.png"
+            } else {
+                "tmp/battlefield.png"
+            }));
         game.screenshot = false;
     }
-    if game.smoke && game.frames > 420 {
+    if game.smoke && !game.benchmark && game.frames > 420 {
         exit.write(AppExit::Success);
     }
 }
@@ -1174,5 +1428,109 @@ mod camera_tests {
             tracking_anchor(Vec2::new(100., 450.), size, 0.).x
                 < tracking_anchor(Vec2::new(100., 450.), size, 296.).x
         );
+    }
+}
+
+// Blender soldiers face -Y; glTF converts that direction to Bevy +Z.
+fn soldier_rotation(direction: Vec3) -> Quat {
+    Quat::from_rotation_y(direction.x.atan2(direction.z))
+}
+#[cfg(test)]
+mod facing_tests {
+    use super::*;
+    #[test]
+    fn exported_soldier_faces_its_target_in_every_direction() {
+        for direction in [
+            Vec3::X,
+            -Vec3::X,
+            Vec3::Z,
+            -Vec3::Z,
+            Vec3::new(2., 0., 3.).normalize(),
+        ] {
+            assert!((soldier_rotation(direction) * Vec3::Z - direction).length() < 0.0001);
+        }
+    }
+}
+
+fn benchmark(
+    mut state: ResMut<Benchmark>,
+    mut game: ResMut<Game>,
+    time: Res<Time<Real>>,
+    entities: Query<Entity>,
+    meshes: Query<&Mesh3d>,
+    diagnostics: Res<DiagnosticsStore>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    if !game.benchmark || state.saved {
+        return;
+    }
+    if state.source.is_none() {
+        state.source = Some(game.battle.clone());
+    }
+    if game.battle.clock >= 8. || game.battle.outcome != Outcome::Playing {
+        game.battle = state
+            .source
+            .as_ref()
+            .expect("benchmark snapshot initialized")
+            .clone();
+        state.repetitions += 1;
+    }
+    let elapsed = state.start.elapsed().as_secs_f32();
+    if elapsed > 3. {
+        state.samples.push(time.delta_secs_f64() * 1000.);
+        state.max_entities = state.max_entities.max(entities.iter().count());
+        state.max_meshes = state.max_meshes.max(meshes.iter().count());
+    }
+    if elapsed >= game.benchmark_seconds + 3. {
+        state.saved = true;
+        state.samples.sort_by(f64::total_cmp);
+        let percentile = |p: f64| {
+            state
+                .samples
+                .get(((state.samples.len().saturating_sub(1)) as f64 * p).round() as usize)
+                .copied()
+                .unwrap_or(0.)
+        };
+        let render = diagnostics
+            .iter()
+            .filter(|d| d.path().as_str().starts_with("render/"))
+            .filter_map(|d| d.smoothed().map(|v| (d.path().as_str().to_string(), v)))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let report = serde_json::json!({"profile":if cfg!(debug_assertions){"dev"}else{"release"},"resolution":[1920,1080],"scenario":"first mission; seed 1993; scripted movement and fire; 3s warmup", "render_path":"offscreen Vulkan; no vsync; excludes desktop compositor", "seconds":game.benchmark_seconds,"scenario_repetitions":state.repetitions,"samples":state.samples.len(),"frame_ms":{"p50":percentile(0.5),"p95":percentile(0.95),"p99":percentile(0.99)},"peak_entities":state.max_entities,"peak_mesh_instances":state.max_meshes,"render_diagnostics":render,"draw_calls":"not available from stock diagnostics; mesh instances are not draw calls"});
+        let _ = std::fs::create_dir_all("tmp");
+        match std::fs::write(
+            "tmp/benchmark.json",
+            serde_json::to_vec_pretty(&report).expect("serializable report"),
+        ) {
+            Ok(()) => info!("Benchmark saved to tmp/benchmark.json: {}", report),
+            Err(e) => error!("Benchmark report failed: {e}"),
+        };
+        exit.write(AppExit::Success);
+    }
+}
+fn foliage_visibility(
+    game: Res<Game>,
+    time: Res<Time>,
+    mut foliage: Query<(&Foliage, &mut Transform)>,
+) {
+    let leaders = game
+        .battle
+        .units
+        .iter()
+        .filter(|u| game.battle.selected_unit(u))
+        .map(|u| world(u.pos))
+        .collect::<Vec<_>>();
+    for (foliage, mut transform) in &mut foliage {
+        let p = transform.translation;
+        let nearby = leaders.iter().any(|u| {
+            let d = p - *u;
+            d.x.abs() < transform.scale.x * 0.6 + 0.7 && d.z > -2. && d.z < 3.
+        });
+        let target = if nearby {
+            foliage.height.min(0.16)
+        } else {
+            foliage.height
+        };
+        transform.scale.y += (target - transform.scale.y) * (1. - (-10. * time.delta_secs()).exp());
     }
 }

@@ -22,7 +22,10 @@
     "palm.glb",
     "rock.glb",
     "soldier.glb",
+    "thicket.glb",
+    "thicket_edge.glb",
     "tree.glb",
     "wreck.glb"
-  ]
+  ],
+  "jungle_generator": "scripts/generate_jungle.py; seed 1993; footprint one meter; pivot ground center"
 }

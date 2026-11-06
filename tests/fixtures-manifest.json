@@ -65,6 +65,9 @@
     "Data/Plus/mapm3.map": "ba903cee7ba7cfb4806293c3ce03585a02e34ed881a1d8e73fd5393414134e9c",
     "Data/Plus/mapm3.spt": "2390357e64a49055885ff2c9d0f039fd1ea633194ecc5af2cce76708f7dafb3b",
     "Data/Plus/mapm4.map": "ba903cee7ba7cfb4806293c3ce03585a02e34ed881a1d8e73fd5393414134e9c",
-    "Data/Plus/mapm4.spt": "3d188ba07b4d2553816f2740a0777535f8d40f938193aac981c196da05b07148"
+    "Data/Plus/mapm4.spt": "3d188ba07b4d2553816f2740a0777535f8d40f938193aac981c196da05b07148",
+    "Data/AmigaTheOne/junbase.blk": "e98e736a01ea6b37ef6a66538a6ad3fd3a1922efa32ff5f111125c8192469437",
+    "Data/AmigaTheOne/junsub0.blk": "4bd52691f2304df277e0a0fc285f38395b17535da76896265bc64e8a4a80f5eb",
+    "Data/AmigaTheOne/junbase.pal": "c915b7bb7d2ab07516d981a98a02720da43a96c6f0eb5d34c344c33bdddf5fb0"
   }
 }

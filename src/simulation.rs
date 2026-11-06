@@ -1,6 +1,15 @@
 //! Renderer-independent, fixed-step battlefield simulation in original pixel units.
 use crate::importer::ImportedLevel;
+use crate::{navigation::Navigation, tuning::CombatTuning};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiState {
+    Idle,
+    Reacting,
+    Engaging,
+    Searching,
+}
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Point {
     pub x: f32,
@@ -44,6 +53,17 @@ pub struct Unit {
     pub cooldown: f32,
     pub fire: bool,
     pub rocket: bool,
+    pub path: VecDeque<Point>,
+    pub history: VecDeque<Point>,
+    pub follow: Option<u32>,
+    pub slot: usize,
+    pub ai: AiState,
+    pub acquired: Option<u32>,
+    pub reaction: f32,
+    pub last_seen: Option<Point>,
+    pub memory: f32,
+    pub repath: f32,
+    pub pose: Option<(Weapon, f32)>,
 }
 #[derive(Clone, Debug)]
 pub struct Building {
@@ -71,7 +91,16 @@ pub struct Pickup {
 }
 #[derive(Clone, Debug)]
 pub enum Effect {
-    Shot(Point),
+    Shot {
+        origin: Point,
+        direction: Point,
+        weapon: Weapon,
+    },
+    Impact(Point),
+    Order {
+        position: Point,
+        accepted: bool,
+    },
     Explosion(Point),
     Death(Point),
     Pickup(Point),
@@ -112,6 +141,8 @@ pub struct Battle {
     pub kill_objective: bool,
     pub seed: u64,
     pub hazards: Vec<Point>,
+    pub navigation: Navigation,
+    pub tuning: CombatTuning,
 }
 impl Battle {
     pub fn new(map: ImportedLevel, seed: u64) -> Self {
@@ -135,6 +166,17 @@ impl Battle {
                     cooldown: 0.5 + (i % 7) as f32 * 0.1,
                     fire: false,
                     rocket: s.kind == 36,
+                    path: VecDeque::new(),
+                    history: VecDeque::from([p]),
+                    follow: None,
+                    slot: 0,
+                    ai: AiState::Idle,
+                    acquired: None,
+                    reaction: 0.,
+                    last_seen: None,
+                    memory: 0.,
+                    repath: 0.,
+                    pose: None,
                 }
             })
             .collect();
@@ -181,7 +223,17 @@ impl Battle {
             .filter(|s| matches!(s.kind, 54..=56))
             .map(|s| Point::new(s.x() as f32, s.y as f32))
             .collect();
+        let navigation = Navigation::build(
+            &map,
+            &buildings
+                .iter()
+                .filter(|b| b.health > 0)
+                .map(|b| (b.pos, 14.))
+                .collect::<Vec<_>>(),
+        );
         Self {
+            navigation,
+            tuning: CombatTuning::default(),
             map,
             units,
             buildings,
@@ -259,10 +311,47 @@ impl Battle {
                     .filter(|(_, u)| self.selected_unit(u))
                     .map(|(i, _)| i)
                     .collect();
+                let Some(&leader_index) = selected.first() else {
+                    return;
+                };
+                let leader_id = self.units[leader_index].id;
+                let Some(leader_route) = self.navigation.route(self.units[leader_index].pos, p)
+                else {
+                    self.effects.push(Effect::Order {
+                        position: p,
+                        accepted: false,
+                    });
+                    return;
+                };
+                let destination = *leader_route.last().expect("routes contain a destination");
+                self.effects.push(Effect::Order {
+                    position: destination,
+                    accepted: true,
+                });
                 for (n, i) in selected.into_iter().enumerate() {
-                    self.units[i].target =
-                        Point::new(p.x + (n % 2) as f32 * 7., p.y + (n / 2) as f32 * 8.);
-                    self.units[i].fire = false;
+                    let target = if n == 0 {
+                        destination
+                    } else {
+                        Point::new(
+                            destination.x + (n % 2) as f32 * 7.,
+                            destination.y + (n / 2 + 1) as f32 * 7.,
+                        )
+                    };
+                    let route = if n == 0 {
+                        Some(leader_route.clone())
+                    } else {
+                        self.navigation.route(self.units[i].pos, target)
+                    };
+                    let u = &mut self.units[i];
+                    u.fire = false;
+                    u.slot = n;
+                    u.follow = if n == 0 { None } else { Some(leader_id) };
+                    u.history = VecDeque::from([u.pos]);
+                    u.repath = 0.;
+                    if let Some(route) = route {
+                        u.target = *route.last().expect("nonempty route");
+                        u.path = route.into();
+                    }
                 }
             }
             Command::Aim(p) => {
@@ -299,6 +388,7 @@ impl Battle {
                 *ammo -= 1;
                 let start = self.units[i].pos;
                 self.units[i].cooldown = 0.65;
+                self.units[i].pose = Some((self.weapon, 0.65));
                 self.units[i].aim = p;
                 self.launch(start, p, false, self.weapon);
             }
@@ -306,9 +396,9 @@ impl Battle {
     }
     fn launch(&mut self, start: Point, target: Point, enemy: bool, weapon: Weapon) {
         let range = match weapon {
-            Weapon::Rifle => 180.,
-            Weapon::Grenade => 110.,
-            Weapon::Rocket => 260.,
+            Weapon::Rifle => self.tuning.rifle_range,
+            Weapon::Grenade => self.tuning.grenade_range,
+            Weapon::Rocket => self.tuning.rocket_range,
         };
         let end = start.toward(target, range);
         let distance = start.distance(end);
@@ -318,15 +408,19 @@ impl Battle {
             target: end,
             age: 0.,
             duration: match weapon {
-                Weapon::Rifle => distance / 340.,
+                Weapon::Rifle => distance / self.tuning.rifle_speed,
                 Weapon::Grenade => 0.9,
-                Weapon::Rocket => distance / 220.,
+                Weapon::Rocket => distance / self.tuning.rocket_speed,
             }
             .max(0.02),
             enemy,
             weapon,
         });
-        self.effects.push(Effect::Shot(start));
+        self.effects.push(Effect::Shot {
+            origin: start,
+            direction: end,
+            weapon,
+        });
     }
     fn random(&mut self) -> f32 {
         self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1);
@@ -344,28 +438,106 @@ impl Battle {
             .map(|u| (u.id, u.pos, u.enemy))
             .collect();
         let mut shots = vec![];
+        let leaders = self
+            .units
+            .iter()
+            .filter(|u| u.alive && !u.enemy)
+            .map(|u| (u.id, u.pos, u.target, u.history.clone()))
+            .collect::<Vec<_>>();
         for u in &mut self.units {
             u.previous = u.pos;
             if !u.alive {
                 continue;
             }
             u.cooldown = (u.cooldown - dt).max(0.);
+            u.repath = (u.repath - dt).max(0.);
+            if let Some((_, remaining)) = &mut u.pose {
+                *remaining -= dt;
+                if *remaining <= 0. {
+                    u.pose = None;
+                }
+            }
             if u.enemy {
-                if let Some((_, p, _)) = live
+                let visible = live
                     .iter()
-                    .filter(|(_, _, e)| !*e)
-                    .min_by(|a, b| u.pos.distance(a.1).total_cmp(&u.pos.distance(b.1)))
-                {
-                    let d = u.pos.distance(*p);
-                    u.fire = d < 160.;
-                    u.aim = *p;
-                    if d < 220. && d > 90. {
-                        u.target = *p;
+                    .filter(|(_, p, enemy)| {
+                        !*enemy
+                            && u.pos.distance(*p) < self.tuning.detection_range
+                            && line_of_sight(&self.map, &self.buildings, u.pos, *p)
+                    })
+                    .min_by(|a, b| u.pos.distance(a.1).total_cmp(&u.pos.distance(b.1)));
+                if let Some((id, point, _)) = visible {
+                    if u.acquired != Some(*id) {
+                        u.acquired = Some(*id);
+                        u.reaction = self.tuning.reaction_seconds;
+                    }
+                    u.reaction = (u.reaction - dt).max(0.);
+                    u.last_seen = Some(*point);
+                    u.memory = self.tuning.memory_seconds;
+                    u.aim = *point;
+                    u.ai = if u.reaction > 0. {
+                        AiState::Reacting
                     } else {
+                        AiState::Engaging
+                    };
+                    u.fire = u.reaction <= 0. && u.pos.distance(*point) < self.tuning.rifle_range;
+                    if u.fire || u.reaction > 0. {
+                        u.path.clear();
                         u.target = u.pos;
+                    } else if u.repath <= 0. {
+                        u.path = self
+                            .navigation
+                            .route(u.pos, *point)
+                            .unwrap_or_default()
+                            .into();
+                        u.repath = 0.5;
                     }
                 } else {
                     u.fire = false;
+                    u.acquired = None;
+                    u.memory = (u.memory - dt).max(0.);
+                    if u.memory > 0. {
+                        u.ai = AiState::Searching;
+                        if u.repath <= 0. {
+                            if let Some(p) = u.last_seen {
+                                u.path = self.navigation.route(u.pos, p).unwrap_or_default().into();
+                            }
+                            u.repath = 0.5;
+                        }
+                    } else {
+                        u.ai = AiState::Idle;
+                        u.path.clear();
+                    }
+                }
+            } else if let Some(id) = u.follow {
+                if let Some((_, position, destination, trail)) =
+                    leaders.iter().find(|(leader, _, _, _)| *leader == id)
+                {
+                    if u.repath <= 0. {
+                        let point = if position.distance(*destination) > 3. {
+                            trail
+                                .iter()
+                                .rev()
+                                .copied()
+                                .find(|p| p.distance(*position) >= u.slot as f32 * 7.)
+                                .unwrap_or(*position)
+                        } else {
+                            u.target
+                        };
+                        u.path = self
+                            .navigation
+                            .route(u.pos, point)
+                            .unwrap_or_default()
+                            .into();
+                        u.repath = 0.3;
+                    }
+                } else {
+                    u.follow = None;
+                    u.path = self
+                        .navigation
+                        .route(u.pos, u.target)
+                        .unwrap_or_default()
+                        .into();
                 }
             }
             if u.fire && u.cooldown <= 0. {
@@ -375,36 +547,54 @@ impl Battle {
                     Weapon::Rifle
                 };
                 shots.push((u.pos, u.aim, u.enemy, weapon));
+                u.pose = Some((weapon, 0.12));
                 u.cooldown = if u.enemy {
-                    if u.rocket { 1.7 } else { 0.8 }
+                    if u.rocket {
+                        1.7
+                    } else {
+                        self.tuning.enemy_cooldown
+                    }
                 } else {
-                    0.16
+                    self.tuning.player_cooldown
                 };
             }
             if !u.fire {
-                let terrain = self.map.terrain_at(u.pos.x, u.pos.y);
-                let speed = if matches!(terrain, 5 | 6) { 20. } else { 48. };
-                let next = u.pos.toward(u.target, dt * speed);
-                let clear = |p: Point| {
-                    self.map.walkable(p.x, p.y)
-                        && self
-                            .buildings
-                            .iter()
-                            .all(|b| b.health <= 0 || p.distance(b.pos) > 14.)
+                let speed = if matches!(self.map.terrain_at(u.pos.x, u.pos.y), 5 | 6) {
+                    self.tuning.swim_speed
+                } else {
+                    self.tuning.walk_speed
                 };
-                if clear(next) {
+                let mut distance = dt * speed;
+                while distance > 0. {
+                    let Some(point) = u.path.front().copied() else {
+                        break;
+                    };
+                    let step = u.pos.distance(point).min(distance);
+                    let next = u.pos.toward(point, step);
+                    if !self.navigation.segment(u.pos, next) {
+                        u.path.clear();
+                        break;
+                    }
                     u.pos = next;
-                } else if clear(Point::new(next.x, u.pos.y)) {
-                    u.pos.x = next.x;
-                } else if clear(Point::new(u.pos.x, next.y)) {
-                    u.pos.y = next.y;
+                    distance -= step;
+                    if u.pos.distance(point) < 0.01 {
+                        u.path.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+                if u.history.back().is_none_or(|p| p.distance(u.pos) >= 2.) {
+                    u.history.push_back(u.pos);
+                    if u.history.len() > 128 {
+                        u.history.pop_front();
+                    }
                 }
             }
         }
         for (start, mut target, enemy, weapon) in shots {
             if enemy {
-                target.x += (self.random() - 0.5) * 28.;
-                target.y += (self.random() - 0.5) * 28.;
+                target.x += (self.random() - 0.5) * self.tuning.aim_error;
+                target.y += (self.random() - 0.5) * self.tuning.aim_error;
             }
             self.launch(start, target, enemy, weapon);
         }
@@ -433,6 +623,7 @@ impl Battle {
                             .iter()
                             .any(|b| b.health > 0 && b.pos.distance(sample) < 15.);
                     if hit.is_some() || wall {
+                        self.effects.push(Effect::Impact(sample));
                         p.pos = sample;
                         p.age = p.duration;
                         if p.weapon == Weapon::Rifle {
@@ -512,6 +703,17 @@ impl Battle {
                     cooldown: 1.,
                     fire: false,
                     rocket: false,
+                    path: VecDeque::new(),
+                    history: VecDeque::from([p]),
+                    follow: None,
+                    slot: 0,
+                    ai: AiState::Idle,
+                    acquired: None,
+                    reaction: 0.,
+                    last_seen: None,
+                    memory: 0.,
+                    repath: 0.,
+                    pose: None,
                 });
             }
         }
@@ -525,6 +727,7 @@ impl Battle {
         }
     }
     pub fn explode(&mut self, p: Point) {
+        let mut changed = false;
         self.effects.push(Effect::Explosion(p));
         for u in &mut self.units {
             if u.alive && u.pos.distance(p) < 27. {
@@ -537,9 +740,41 @@ impl Battle {
                 b.health -= 1;
                 if b.health == 0 {
                     self.map.destroy_tiles(&b.tiles);
+                    changed = true;
                     self.effects.push(Effect::Explosion(b.pos));
                 }
             }
         }
+        if changed {
+            self.navigation = Navigation::build(
+                &self.map,
+                &self
+                    .buildings
+                    .iter()
+                    .filter(|b| b.health > 0)
+                    .map(|b| (b.pos, 14.))
+                    .collect::<Vec<_>>(),
+            );
+            for u in &mut self.units {
+                if !u.path.is_empty() {
+                    u.path = self
+                        .navigation
+                        .route(u.pos, u.target)
+                        .unwrap_or_default()
+                        .into();
+                }
+            }
+        }
     }
+}
+
+pub fn line_of_sight(map: &ImportedLevel, buildings: &[Building], a: Point, b: Point) -> bool {
+    let count = a.distance(b).ceil().max(1.) as usize;
+    (1..count).all(|i| {
+        let p = a.toward(b, a.distance(b) * i as f32 / count as f32);
+        map.walkable(p.x, p.y)
+            && buildings
+                .iter()
+                .all(|o| o.health <= 0 || p.distance(o.pos) > 14.)
+    })
 }

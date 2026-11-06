@@ -22,6 +22,10 @@ pub struct Game {
     pub frames: u32,
     pub resources: Option<PathBuf>,
     pub rules: Vec<(bool, bool)>,
+    pub aggression: Vec<Vec<u8>>,
+    pub benchmark: bool,
+    pub combat_preview: bool,
+    pub benchmark_seconds: f32,
 }
 fn main() {
     if let Err(e) = run() {
@@ -39,7 +43,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     if args.iter().any(|a| a == "--help") {
         println!(
-            "Disposable Heroes\n--data DIR (default data)\n--map FILE.map [--tilesets DIR]\n--campaign FILE.ofc --maps DIR\n--seed N --fresh --smoke-test\nMouse: left move/select, right hold fire, both buttons explosive.\n1/2/3 squads, G grenades, X rockets, S split, J join, R retry, Enter deploy/continue, F1 HUD, F12 screenshot."
+            "Disposable Heroes\n--data DIR (default data)\n--map FILE.map [--tilesets DIR]\n--campaign FILE.ofc --maps DIR\n--seed N --fresh --smoke-test --benchmark [--benchmark-seconds N] --combat-preview\nMouse: left move/select, right hold fire, both buttons explosive.\n1/2/3 squads, G grenades, X rockets, S split, J join, R retry, Enter deploy/continue, F1 HUD, F12 screenshot."
         );
         return Ok(());
     }
@@ -55,8 +59,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "NO RETURN ADDRESS".into(),
     ];
     let mut rules = vec![(true, true); 3];
+    let mut aggression = vec![vec![2, 4], vec![4, 8], vec![4, 8]];
     if let Some(file) = value("--map") {
         rules = vec![(true, true)];
+        aggression = vec![vec![2, 4]];
         maps = vec![file.into()];
         titles = vec!["FIELD OPERATIONS".into()];
     }
@@ -66,6 +72,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         maps.clear();
         titles.clear();
         rules.clear();
+        aggression.clear();
         for mission in definition.missions {
             for phase in mission.phases {
                 if phase.objectives.iter().any(|o| {
@@ -84,6 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     phase.objectives.iter().any(|o| o == "KILL ALL ENEMY"),
                     phase.objectives.iter().any(|o| o.contains("BUILDINGS")),
                 ));
+                aggression.push(phase.aggression);
                 maps.push(dir.join(format!("{}.map", phase.map_name)));
                 titles.push(phase.name);
             }
@@ -108,8 +116,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     battle.kill_objective = rules[index].0;
     battle.destroy_objective = rules[index].1;
+    battle.tuning.aggression(&aggression[index]);
     assign_roster(&mut battle, &campaign);
-    let smoke = args.iter().any(|a| a == "--smoke-test");
+    let benchmark = args.iter().any(|a| a == "--benchmark");
+    let combat_preview = args.iter().any(|a| a == "--combat-preview");
+    let smoke = benchmark || combat_preview || args.iter().any(|a| a == "--smoke-test");
     let plugins = DefaultPlugins
         .set(AssetPlugin {
             file_path: std::fs::canonicalize("assets")?
@@ -123,7 +134,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 Some(Window {
                     title: "Disposable Heroes".into(),
-                    resolution: (1440, 900).into(),
+                    resolution: (1920, 1080).into(),
                     ..default()
                 })
             },
@@ -137,9 +148,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new();
     if smoke {
         app.add_plugins(plugins.build().disable::<bevy::winit::WinitPlugin>())
-            .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
-                std::time::Duration::from_secs_f64(1. / 60.),
-            ));
+            .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(if benchmark {
+                std::time::Duration::ZERO
+            } else {
+                std::time::Duration::from_secs_f64(1. / 60.)
+            }));
     } else {
         app.add_plugins(plugins);
     }
@@ -163,6 +176,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             frames: 0,
             resources,
             rules,
+            aggression,
+            benchmark,
+            combat_preview,
+            benchmark_seconds: value("--benchmark-seconds")
+                .and_then(|s| s.parse::<f32>().ok())
+                .filter(|s| s.is_finite() && *s >= 1.)
+                .unwrap_or(20.),
         })
         .add_plugins(presentation::BattlefieldPlugin)
         .run();
