@@ -993,6 +993,7 @@ fn unit_views(
                 direction,
                 weapon,
             } => {
+                debug!("Shot effect: {:?}", weapon);
                 shot_sound = true;
                 let muzzle = world(origin)
                     + Vec3::Y * 0.8

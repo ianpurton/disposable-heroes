@@ -33,6 +33,7 @@ from pathlib import Path
 s=Path('tmp/native-input.log').read_text()
 assert s.count('Deploying mission 1')>=2,'deploy/retry did not respond'
 assert 'Movement order processed:' in s,'no movement order received'
+assert 'Shot effect: Rifle' in s,'right mouse did not produce a rifle shot'
 assert 'Screenshot saved' in s,'screenshot shortcut did not respond'
 assert 'panicked' not in s and 'ERROR' not in s,'runtime errors; inspect tmp/native-input.log'
 print('Native deploy, movement, shooting gesture, group shortcuts, screenshot and retry input exercised.')
