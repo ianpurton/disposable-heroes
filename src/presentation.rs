@@ -7,10 +7,7 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
     render::view::screenshot::{Screenshot, save_to_disk},
 };
-use bevy::{
-    picking::hover::Hovered,
-    ui_widgets::{Activate, Button},
-};
+use bevy::{picking::hover::Hovered, ui_widgets::Activate};
 use std::collections::HashMap;
 #[derive(Asset, TypePath, bevy::render::render_resource::AsBindGroup, Debug, Clone)]
 struct WaterMaterial {
@@ -45,7 +42,11 @@ struct StatusText;
 #[derive(Component)]
 struct HudPanel;
 #[derive(Component)]
+struct Button;
+#[derive(Component)]
 struct MainCamera;
+#[derive(Resource)]
+struct Offscreen(Handle<Image>);
 #[derive(Component)]
 struct Particle {
     velocity: Vec3,
@@ -86,7 +87,7 @@ impl Plugin for BattlefieldPlugin {
             MaterialPlugin::<WaterMaterial>::default(),
         ))
         .add_systems(Startup, setup)
-        .add_systems(PreUpdate, input)
+        .add_systems(PreUpdate, input.after(bevy::input::InputSystems))
         .add_systems(FixedUpdate, simulate)
         .add_systems(
             Update,
@@ -101,6 +102,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     game: Res<Game>,
     mut water: ResMut<Assets<WaterMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let models = [
         "soldier", "enemy", "palm", "tree", "bush", "grass", "rock", "hut", "bunker", "jeep",
@@ -137,41 +139,64 @@ fn setup(
         shot: assets.load("audio/rifle.wav"),
         boom: assets.load("audio/explosion.wav"),
     };
-    let focus = game
+    let mut focus = game
         .battle
         .units
         .iter()
         .find(|u| !u.enemy)
         .map(|u| world(u.pos))
         .unwrap_or(Vec3::ZERO);
-    commands.insert_resource(CameraRig { focus, zoom: 24. });
-    commands.spawn((
-        MainCamera,
-        Camera3d::default(),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
-                viewport_height: 24.,
+    if game.battle.map.width <= 25 {
+        focus = Vec3::new(
+            game.battle.map.width as f32,
+            0.,
+            game.battle.map.height as f32,
+        );
+    }
+    commands.insert_resource(CameraRig { focus, zoom: 32. });
+    let camera = commands
+        .spawn((
+            MainCamera,
+            Camera3d::default(),
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: ScalingMode::FixedVertical {
+                    viewport_height: 32.,
+                },
+                ..OrthographicProjection::default_3d()
+            }),
+            Transform::from_translation(focus + Vec3::new(0., 40., 28.)).looking_at(focus, Vec3::Y),
+            DistanceFog {
+                color: Color::srgb(0.26, 0.36, 0.29),
+                falloff: FogFalloff::Linear {
+                    start: 65.,
+                    end: 150.,
+                },
+                ..default()
             },
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_translation(focus + Vec3::new(0., 40., 28.)).looking_at(focus, Vec3::Y),
-        DistanceFog {
-            color: Color::srgb(0.26, 0.36, 0.29),
-            falloff: FogFalloff::Linear {
-                start: 65.,
-                end: 150.,
-            },
-            ..default()
-        },
-    ));
+        ))
+        .id();
+    if game.smoke {
+        let mut image = Image::new_target_texture(
+            1440,
+            900,
+            bevy::render::render_resource::TextureFormat::Bgra8UnormSrgb,
+            None,
+        );
+        image.texture_descriptor.usage |= bevy::render::render_resource::TextureUsages::COPY_SRC;
+        let handle = images.add(image);
+        commands
+            .entity(camera)
+            .insert(bevy::camera::RenderTarget::Image(handle.clone().into()));
+        commands.insert_resource(Offscreen(handle));
+    }
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.68, 0.81, 0.72),
-        brightness: 350.,
+        brightness: 120.,
         ..default()
     });
     commands.spawn((
         DirectionalLight {
-            illuminance: 14000.,
+            illuminance: 9000.,
             shadow_maps_enabled: true,
             ..default()
         },
@@ -187,6 +212,7 @@ fn setup(
     let panel = commands
         .spawn((
             HudPanel,
+            UiTargetCamera(camera),
             Node {
                 position_type: PositionType::Absolute,
                 left: px(18),
@@ -204,6 +230,7 @@ fn setup(
     let title = commands
         .spawn((
             HudText,
+            bevy::picking::Pickable::IGNORE,
             Text::new("DISPOSABLE\nHEROES"),
             TextFont {
                 font_size: FontSize::Px(20.),
@@ -232,6 +259,7 @@ fn setup(
             });
         let child = commands
             .spawn((
+                bevy::picking::Pickable::IGNORE,
                 RosterLabel(slot),
                 Text::new(""),
                 TextFont {
@@ -318,7 +346,8 @@ fn terrain_mesh(b: &Battle, kind: u8) -> Mesh {
             }
             let base = pos.len() as u32;
             let h = if k == 1 { -0.10 } else { 0. };
-            let variation = ((x * 73 + y * 31) % 19) as f32 / 190.;
+            let variation =
+                0.025 + (x as f32 * 0.045).sin() * 0.012 + (y as f32 * 0.037).cos() * 0.012;
             let c = if k == 1 {
                 [
                     0.075 + variation * 0.2,
@@ -462,6 +491,8 @@ fn spawn_level(
     }
 }
 fn input(
+    mut commands: Commands,
+    buttons: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<Button>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
@@ -511,6 +542,9 @@ fn input(
     }
     if let Some(cursor) = window.cursor_position() {
         let blocked = game.hud && cursor.x < 296.;
+        if !blocked && game.briefing && mouse.just_pressed(MouseButton::Left) {
+            advance(&mut game);
+        }
         if !blocked && !game.briefing {
             let mut pan = Vec3::ZERO;
             if cursor.x < 12. {
@@ -561,6 +595,18 @@ fn input(
                 }
             }
         } else if blocked {
+            if mouse.just_pressed(MouseButton::Left) {
+                let point = cursor * window.scale_factor();
+                for (entity, node, transform) in &buttons {
+                    if let Some(inverse) = transform.try_inverse() {
+                        let local = inverse.transform_point2(point);
+                        if local.abs().cmple(node.size() * 0.5).all() {
+                            commands.trigger(Activate { entity });
+                            break;
+                        }
+                    }
+                }
+            }
             game.queue.push(Command::Aim(None));
         }
     }
@@ -610,6 +656,8 @@ fn reload(
                 commands.entity(e).despawn();
             }
             let mut battle = Battle::new(map, 1993);
+            battle.kill_objective = game.rules[game.index].0;
+            battle.destroy_objective = game.rules[game.index].1;
             assign_roster(&mut battle, &game.snapshot);
             rig.focus = battle
                 .units
@@ -878,6 +926,7 @@ fn button(commands: &mut Commands, label: &str, parent: Entity) -> Entity {
     if !label.is_empty() {
         let text = commands
             .spawn((
+                bevy::picking::Pickable::IGNORE,
                 Text::new(label.to_string()),
                 TextFont {
                     font_size: FontSize::Px(14.),
@@ -893,6 +942,7 @@ fn button(commands: &mut Commands, label: &str, parent: Entity) -> Entity {
 }
 fn advance(game: &mut Game) {
     if game.briefing {
+        info!("Deploying mission {}", game.index + 1);
         game.briefing = false;
         return;
     }
@@ -989,7 +1039,7 @@ fn hud(
                 .nth(slot.0)
                 .map(|u| {
                     format!(
-                        "{} {} · {}",
+                        "{} {} / {}",
                         if game.battle.selected_unit(u) {
                             ">"
                         } else {
@@ -1003,15 +1053,15 @@ fn hud(
                         }
                     )
                 })
-                .unwrap_or("—".into());
+                .unwrap_or("-".into());
         } else if status {
             **text = format!(
-                "GRENADES {}   ROCKETS {}\nSELECTED: {:?}\n\n{}\n\nLEFT MOVE · RIGHT FIRE\nBOTH BUTTONS EXPLOSIVE\nF1 HUD · F12 CAPTURE\n\n{}\nFALLEN: {}\n{:.0} FPS",
+                "GRENADES {}   ROCKETS {}\nSELECTED: {:?}\n\n{}\n\nLEFT MOVE / RIGHT FIRE\nBOTH BUTTONS EXPLOSIVE\nF1 HUD / F12 CAPTURE\n\n{}\nFALLEN: {}\n{:.0} FPS",
                 game.battle.grenades,
                 game.battle.rockets,
                 game.battle.weapon,
                 if game.briefing {
-                    "ORDERS: Eliminate troops.\nDestroy enemy buildings.\nDeploy when ready."
+                    "ORDERS: Eliminate troops.\nDestroy enemy buildings.\nClick battlefield to deploy."
                 } else {
                     match game.battle.outcome {
                         Outcome::Playing => "Keep your heads down.",
@@ -1026,16 +1076,23 @@ fn hud(
         }
     }
 }
-fn capture(mut commands: Commands, mut game: ResMut<Game>, mut exit: MessageWriter<AppExit>) {
+fn capture(
+    mut commands: Commands,
+    mut game: ResMut<Game>,
+    mut exit: MessageWriter<AppExit>,
+    offscreen: Option<Res<Offscreen>>,
+) {
     game.frames += 1;
-    if game.screenshot || game.smoke && game.frames == 120 {
+    if game.screenshot || game.smoke && game.frames == 360 {
         let _ = std::fs::create_dir_all("tmp");
         commands
-            .spawn(Screenshot::primary_window())
+            .spawn(offscreen.map_or_else(Screenshot::primary_window, |target| {
+                Screenshot::image(target.0.clone())
+            }))
             .observe(save_to_disk("tmp/battlefield.png"));
         game.screenshot = false;
     }
-    if game.smoke && game.frames > 150 {
+    if game.smoke && game.frames > 420 {
         exit.write(AppExit::Success);
     }
 }

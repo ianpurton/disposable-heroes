@@ -131,3 +131,39 @@ fn deterministic_combat() {
         assert_eq!(a.alive, b.alive);
     }
 }
+
+#[test]
+fn building_destruction_changes_collision_once() {
+    let mut battle = Battle::new(fixture(), 1993);
+    battle.map.tiles[0] = 1;
+    battle.map.terrain.swap[1] = 2;
+    battle.map.terrain.hit[1] = 3;
+    battle.map.terrain.hit[2] = 0;
+    battle.buildings.push(Building {
+        pos: Point::new(8., 8.),
+        health: 1,
+        tiles: vec![0],
+        spawn: 10.,
+        vehicle: false,
+    });
+    battle.explode(Point::new(8., 8.));
+    assert_eq!(battle.buildings[0].health, 0);
+    assert!(battle.map.walkable(8., 8.));
+    battle.explode(Point::new(8., 8.));
+    assert_eq!(battle.buildings[0].health, 0);
+}
+
+#[test]
+fn atomic_campaign_round_trip() {
+    let directory = std::env::temp_dir().join(format!("dh-save-test-{}", std::process::id()));
+    let path = directory.join("campaign.json");
+    let mut campaign = Campaign::default();
+    campaign.complete(&[0]);
+    campaign.save(&path).unwrap();
+    let loaded = Campaign::load(&path).unwrap();
+    assert_eq!(loaded.mission, 1);
+    assert!(!loaded.roster[0].alive);
+    assert_eq!(loaded.memorial[0].name, "Jools");
+    assert!(!path.with_extension("tmp").exists());
+    std::fs::remove_dir_all(directory).unwrap();
+}

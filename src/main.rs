@@ -21,6 +21,7 @@ pub struct Game {
     pub screenshot: bool,
     pub frames: u32,
     pub resources: Option<PathBuf>,
+    pub rules: Vec<(bool, bool)>,
 }
 fn main() {
     if let Err(e) = run() {
@@ -53,7 +54,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "PROPERTY DAMAGE".into(),
         "NO RETURN ADDRESS".into(),
     ];
+    let mut rules = vec![(true, true); 3];
     if let Some(file) = value("--map") {
+        rules = vec![(true, true)];
         maps = vec![file.into()];
         titles = vec!["FIELD OPERATIONS".into()];
     }
@@ -62,6 +65,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let dir = PathBuf::from(value("--maps").ok_or("--campaign requires --maps DIRECTORY")?);
         maps.clear();
         titles.clear();
+        rules.clear();
         for mission in definition.missions {
             for phase in mission.phases {
                 if phase.objectives.iter().any(|o| {
@@ -76,6 +80,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )
                     .into());
                 }
+                rules.push((
+                    phase.objectives.iter().any(|o| o == "KILL ALL ENEMY"),
+                    phase.objectives.iter().any(|o| o.contains("BUILDINGS")),
+                ));
                 maps.push(dir.join(format!("{}.map", phase.map_name)));
                 titles.push(phase.name);
             }
@@ -98,18 +106,44 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         map,
         value("--seed").and_then(|s| s.parse().ok()).unwrap_or(1993),
     );
+    battle.kill_objective = rules[index].0;
+    battle.destroy_objective = rules[index].1;
     assign_roster(&mut battle, &campaign);
     let smoke = args.iter().any(|a| a == "--smoke-test");
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Disposable Heroes".into(),
-                resolution: (1440, 900).into(),
-                ..default()
-            }),
+    let plugins = DefaultPlugins
+        .set(AssetPlugin {
+            file_path: std::fs::canonicalize("assets")?
+                .to_string_lossy()
+                .into_owned(),
             ..default()
-        }))
-        .insert_resource(ClearColor(Color::srgb(0.035, 0.065, 0.06)))
+        })
+        .set(WindowPlugin {
+            primary_window: if smoke {
+                None
+            } else {
+                Some(Window {
+                    title: "Disposable Heroes".into(),
+                    resolution: (1440, 900).into(),
+                    ..default()
+                })
+            },
+            exit_condition: if smoke {
+                bevy::window::ExitCondition::DontExit
+            } else {
+                bevy::window::ExitCondition::OnAllClosed
+            },
+            ..default()
+        });
+    let mut app = App::new();
+    if smoke {
+        app.add_plugins(plugins.build().disable::<bevy::winit::WinitPlugin>())
+            .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
+                std::time::Duration::from_secs_f64(1. / 60.),
+            ));
+    } else {
+        app.add_plugins(plugins);
+    }
+    app.insert_resource(ClearColor(Color::srgb(0.035, 0.065, 0.06)))
         .insert_resource(Time::<Fixed>::from_hz(50.))
         .insert_resource(Game {
             battle,
@@ -128,6 +162,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             screenshot: false,
             frames: 0,
             resources,
+            rules,
         })
         .add_plugins(presentation::BattlefieldPlugin)
         .run();

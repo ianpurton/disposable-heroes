@@ -18,7 +18,7 @@ blender -b -t 2 --python scripts/generate_assets.py
 python3 scripts/generate_audio.py
 ```
 
-Controls: left click moves or selects a soldier; hold right click to fire; press both mouse buttons to use the selected explosive. Use the squad panel to select groups, split an individual, regroup, select grenades/rockets, deploy and retry. Keyboard equivalents: 1–3 squads, S split, J regroup, G grenades, X rockets, Enter deploy/continue, R retry. Scroll zooms; screen edges pan. F1 hides the HUD; F12 captures `tmp/battlefield.png`.
+Click Deploy or left-click the battlefield to start the mission. Controls: left click moves or selects a soldier; hold right click to fire; press both mouse buttons to use the selected explosive. Use the squad panel to select groups, split an individual, regroup, select grenades/rockets, deploy and retry. Keyboard equivalents: 1–3 squads, S split, J regroup, G grenades, X rockets, Enter deploy/continue, R retry. Scroll zooms; screen edges pan. F1 hides the HUD; F12 captures `tmp/battlefield.png`.
 
 Explosives require pickups. Enemies are lethal; grenades and rockets can kill your own soldiers. Surviving soldiers carry into the next mission. Retry restores the mission-start roster. Saves are written at successful mission transitions to `saves/campaign.json`; `--fresh` starts a new roster.
 
@@ -42,7 +42,7 @@ cargo check --all-targets
 cargo run -- --fresh --smoke-test
 ```
 
-The smoke test captures a frame in `tmp/battlefield.png` and exits. It needs a display or Xvfb. In the Codex command sandbox, GPU devices are hidden; run GPU validation through the approved escalated execution path (see AGENTS.md). Host interactive playtesting is the final check for controls and performance.
+The smoke test captures a frame in `tmp/battlefield.png` and exits. It renders offscreen and needs no desktop display. In the Codex command sandbox, GPU devices are hidden; run GPU validation through the approved escalated execution path (see AGENTS.md). Host interactive playtesting is the final check for controls and performance.
 
 `blender -b -t 4 --python scripts/preview_assets.py` renders `tmp/asset-library.png`.
 
