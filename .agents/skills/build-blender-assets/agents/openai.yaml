@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Blender Assets"
+  short_description: "Build procedural models into validated GLBs with Blender"
+  default_prompt: "Build and validate the procedural Blender assets for this project."

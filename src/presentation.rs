@@ -171,12 +171,7 @@ fn setup(
         "crate",
     ]
     .into_iter()
-    .map(|name| {
-        (
-            name.into(),
-            assets.load(format!("models/{name}.glb#Scene0")),
-        )
-    })
+    .map(|name| (name.into(), assets.load(format!("glb/{name}.glb#Scene0"))))
     .collect();
     let library = Library {
         ground: assets
@@ -195,8 +190,8 @@ fn setup(
         }),
         animations: HashMap::new(),
         models,
-        soldier: assets.load("models/soldier.glb"),
-        enemy: assets.load("models/enemy.glb"),
+        soldier: assets.load("glb/soldier.glb"),
+        enemy: assets.load("glb/enemy.glb"),
         sphere: meshes.add(
             Sphere::new(1.)
                 .mesh()

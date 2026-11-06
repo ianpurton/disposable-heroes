@@ -12,7 +12,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --locked --no-default-features
       - run: cargo build --locked --release --target x86_64-unknown-linux-gnu
-      - run: mkdir -p dist && cp target/x86_64-unknown-linux-gnu/release/disposable-heroes dist/ && cp -r assets scripts tests README.md docs dist/
+      - run: mkdir -p dist && cp target/x86_64-unknown-linux-gnu/release/disposable-heroes dist/ && cp -r assets scripts tests README.md docs dist/ && rm -r dist/assets/models
       - uses: actions/upload-artifact@v4
         with:
           name: disposable-heroes-linux
@@ -29,7 +29,11 @@ jobs:
           name: disposable-heroes-windows
           path: |
             target/x86_64-pc-windows-msvc/release/disposable-heroes.exe
-            assets/
+            assets/glb/
+            assets/textures/
+            assets/audio/
+            assets/shaders/
+            assets/catalogs/
             scripts/fetch_fixtures.py
             tests/fixtures-manifest.json
             README.md

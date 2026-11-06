@@ -5,3 +5,5 @@
 /tmp/
 *.blend1
 __pycache__/
+
+/assets/.glb-build-*/
