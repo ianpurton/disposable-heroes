@@ -76,6 +76,7 @@ struct Library {
 struct CameraRig {
     focus: Vec3,
     zoom: f32,
+    manual_scroll: f32,
 }
 #[derive(Component)]
 struct AnimationState(usize);
@@ -153,7 +154,11 @@ fn setup(
             game.battle.map.height as f32,
         );
     }
-    commands.insert_resource(CameraRig { focus, zoom: 32. });
+    commands.insert_resource(CameraRig {
+        focus,
+        zoom: 32.,
+        manual_scroll: 0.,
+    });
     let camera = commands
         .spawn((
             MainCamera,
@@ -540,6 +545,7 @@ fn input(
     for w in wheel.read() {
         rig.zoom = (rig.zoom - w.y * 1.5).clamp(14., 60.);
     }
+    rig.manual_scroll = (rig.manual_scroll - time.delta_secs()).max(0.);
     if let Some(cursor) = window.cursor_position() {
         let blocked = game.hud && cursor.x < 296.;
         if !blocked && game.briefing && mouse.just_pressed(MouseButton::Left) {
@@ -558,6 +564,9 @@ fn input(
             }
             if cursor.y > window.height() - 12. {
                 pan.z += 1.;
+            }
+            if pan.length_squared() > 0. {
+                rig.manual_scroll = 1.5;
             }
             let zoom = rig.zoom;
             rig.focus += pan * time.delta_secs() * zoom * 0.7;
@@ -613,6 +622,44 @@ fn input(
     if mouse.just_released(MouseButton::Right) {
         game.queue.push(Command::Aim(None));
     }
+    // Track the active living leader inside the usable viewport, clear of the HUD.
+    if !game.briefing && game.battle.outcome == Outcome::Playing && rig.manual_scroll <= 0. {
+        let leader = game
+            .battle
+            .units
+            .iter()
+            .find(|u| game.battle.selected_unit(u))
+            .or_else(|| {
+                game.battle
+                    .units
+                    .iter()
+                    .find(|u| u.alive && !u.enemy && u.group == game.battle.active_group)
+            });
+        if let Some(leader) = leader {
+            let position = world(leader.pos);
+            if let Ok(screen) = cam.world_to_viewport(gt, position) {
+                let left = if game.hud {
+                    296_f32.min(window.width() * 0.4)
+                } else {
+                    0.
+                };
+                let desired =
+                    tracking_anchor(screen, Vec2::new(window.width(), window.height()), left);
+                if desired != screen {
+                    if let Ok(ray) = cam.viewport_to_world(gt, desired) {
+                        if let Some(distance) =
+                            ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y))
+                        {
+                            let correction = position - ray.get_point(distance);
+                            rig.focus += correction * (1. - (-8. * time.delta_secs()).exp());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    rig.focus.x = rig.focus.x.clamp(0., game.battle.map.width as f32 * 2.);
+    rig.focus.z = rig.focus.z.clamp(0., game.battle.map.height as f32 * 2.);
     *transform = Transform::from_translation(rig.focus + Vec3::new(0., 40., 28.))
         .looking_at(rig.focus, Vec3::Y);
     if let Projection::Orthographic(p) = &mut *projection {
@@ -1094,5 +1141,38 @@ fn capture(
     }
     if game.smoke && game.frames > 420 {
         exit.write(AppExit::Success);
+    }
+}
+
+// Leave a generous central area so small movements do not continually move the view.
+fn tracking_anchor(screen: Vec2, size: Vec2, hud_width: f32) -> Vec2 {
+    let width = (size.x - hud_width).max(1.);
+    Vec2::new(
+        screen
+            .x
+            .clamp(hud_width + width * 0.22, size.x - width * 0.22),
+        screen.y.clamp(size.y * 0.25, size.y * 0.75),
+    )
+}
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+    #[test]
+    fn tracks_all_edges_and_keeps_soldiers_clear_of_hud() {
+        let size = Vec2::new(1440., 900.);
+        assert_eq!(
+            tracking_anchor(Vec2::new(800., 450.), size, 296.),
+            Vec2::new(800., 450.)
+        );
+        let top = tracking_anchor(Vec2::new(800., 20.), size, 296.);
+        assert_eq!(top.y, 225.);
+        let bottom = tracking_anchor(Vec2::new(800., 890.), size, 296.);
+        assert_eq!(bottom.y, 675.);
+        assert!(tracking_anchor(Vec2::new(100., 450.), size, 296.).x > 296.);
+        assert!(tracking_anchor(Vec2::new(1430., 450.), size, 296.).x < 1430.);
+        assert!(
+            tracking_anchor(Vec2::new(100., 450.), size, 0.).x
+                < tracking_anchor(Vec2::new(100., 450.), size, 296.).x
+        );
     }
 }
