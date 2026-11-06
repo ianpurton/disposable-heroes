@@ -1,19 +1,19 @@
 # Implementation status
 
-This is the initial playable foundation, not a finished fidelity-validated release.
+The first-mission polish pass is implemented; host acceptance and Amiga timing comparisons remain pending.
 
-Implemented: Rust-only runtime, native CF1 MAP/SPT/HIT/BHT/SWP import, real pinned fixtures, inspector, three imported jungle phases, mouse selection/movement/shooting, split/regroup, grenades/rockets and pickups, enemy pursuit/fire, barracks reinforcements, destruction and terrain substitutions, mission outcomes, mission-start retry, named roster persistence and memorial, generated GLB library with animation clips, terrain, water, lighting, shadows, effects, synthesized audio, HUD and screenshot capture.
+Implemented: native CF1 import and pinned reference tile decoding; reviewed visual mappings for every first-mission tile; generated, merged jungle thickets and baked ground detail replacing collision slabs; deterministic two-pixel navigation with clearance, corner checks and reachable-goal handling; leader trails, independent split squads and leader-death continuation; destruction rebuilding routes; visibility-based enemy reaction/search states and campaign aggression; aim-aligned muzzle flashes, impacts, bounded particles, brief explosion lighting, order/pickup feedback; shared animation graphs, transitions, upper-body masks, swimming/throw/rocket/death poses; foliage lowering near selected soldiers; repeatable 1080p release benchmark and native input smoke script.
 
-Remaining before the approved polished slice is complete:
+The existing three imported jungle phases, roster persistence, mission retry, memorial, camera tracking, HUD, generated GLB library and audio remain available. The first mission is the reviewed environment target; the other phases need the same tile-by-tile visual review.
 
-- Compare movement, timing, ranges, enemy behavior and control gestures against Amiga reference footage. Current tuning is provisional.
-- Expand structure recognition beyond the jungle barracks pattern, validate sprite-specific anchors, and handle bridges and bunker variants accurately in 3D.
-- Author the final showcase mission using the existing editor. The current third mission uses AmigaAction/mapm3 unchanged.
-- Fully support civilian behaviors and campaign aggression ranges. Unsupported objectives are rejected; some decorative sprite IDs currently have no 3D representation.
-- Improve soldier animation transitions, upper-body masks, explosive poses, swimming integration and foliage occlusion handling.
-- Improve painted surface detail, destruction debris, lighting and sound mixing.
-- Validate performance on the Linux host. The initial Xvfb screenshot used software Vulkan; smoke-test capture now renders offscreen to avoid Xvfb hardware presentation requirements.
+Validation: 25 tests pass (12 core, 11 navigation/environment/combat, 2 camera/facing); Linux dev/release builds and all-target compile checks pass. AMD Vulkan overview and scripted combat captures are in tmp/. Performance results are recorded separately in tmp/benchmark.json.
 
-Validation: 12 core tests pass; Linux build and all-target checks pass; offscreen Vulkan smoke capture passed on AMD Radeon Graphics (RADV GFX1150). Preview images are in `tmp/`.
+Remaining work:
 
-No Windows build was run locally. CI configuration is provided, but its remote results have not been observed.
+- Host playtest navigation, combat difficulty, readability and audio mix. The container has no audio output device.
+- Compare travel times, follow spacing, reaction, fire cadence and terrain rules against an Amiga playthrough. Current tuning and visibility interpretation are explicitly provisional; see docs/first-mission.md.
+- Review additional mission tile mappings, sprite anchors, bridge/bunker families and civilian behavior.
+- Author the final showcase mission in the existing editor; the third phase still uses AmigaAction/mapm3 unchanged.
+- Assess measured release performance on the user's host before claiming the 60 fps target.
+
+No Windows build was run locally. CI configuration is provided, but remote results have not been observed.

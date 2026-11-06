@@ -48,6 +48,9 @@ struct MainCamera;
 #[derive(Resource)]
 struct Offscreen(Handle<Image>);
 #[derive(Component)]
+struct TransientLight(f32);
+
+#[derive(Component)]
 struct Particle {
     velocity: Vec3,
     remaining: f32,
@@ -800,7 +803,19 @@ fn simulate(mut game: ResMut<Game>, time: Res<Time<Fixed>>) {
         }
     }
     for c in cmds {
+        let movement = matches!(c, Command::Move(_));
         game.battle.command(c);
+        if movement {
+            debug!(
+                "Movement order processed: {:?}",
+                game.battle
+                    .units
+                    .iter()
+                    .filter(|u| game.battle.selected_unit(u))
+                    .map(|u| (u.id, u.target, u.path.len()))
+                    .collect::<Vec<_>>()
+            );
+        }
     }
     game.battle.tick(time.delta_secs());
 }
@@ -849,6 +864,7 @@ fn reload(
 }
 fn unit_views(
     mut commands: Commands,
+    particle_count: Query<(), With<Particle>>,
     mut game: ResMut<Game>,
     lib: Res<Library>,
     mut units: Query<(Entity, &UnitView, &mut Transform)>,
@@ -965,6 +981,8 @@ fn unit_views(
             }
         }
     }
+    let mut particle_budget = 512usize.saturating_sub(particle_count.iter().count());
+    let mut light_budget = 4;
     let effects = std::mem::take(&mut game.battle.effects);
     let mut shot_sound = false;
     let mut boom_sound = false;
@@ -979,6 +997,10 @@ fn unit_views(
                 let muzzle = world(origin)
                     + Vec3::Y * 0.8
                     + (world(direction) - world(origin)).normalize_or_zero() * 0.65;
+                if particle_budget == 0 {
+                    continue;
+                }
+                particle_budget -= 1;
                 commands.spawn((
                     LevelEntity,
                     Mesh3d(lib.sphere.clone()),
@@ -1001,12 +1023,30 @@ fn unit_views(
             }
             Effect::Explosion(p) => {
                 boom_sound = true;
+                if light_budget > 0 {
+                    light_budget -= 1;
+                    commands.spawn((
+                        LevelEntity,
+                        TransientLight(0.1),
+                        PointLight {
+                            color: Color::srgb(1., 0.44, 0.08),
+                            intensity: 18000.,
+                            range: 8.,
+                            ..default()
+                        },
+                        Transform::from_translation(world(p) + Vec3::Y * 1.5),
+                    ));
+                }
                 (p, 28, true)
             }
             Effect::Death(p) => (p, 5, false),
             Effect::Pickup(p) => (p, 8, false),
         };
         for i in 0..count {
+            if particle_budget == 0 {
+                break;
+            }
+            particle_budget -= 1;
             let a = i as f32 * 2.399;
             let speed = if explosion { 2. + (i % 5) as f32 } else { 0.5 };
             commands.spawn((
@@ -1176,12 +1216,20 @@ fn animate(
 }
 fn particles(
     mut commands: Commands,
+    mut lights: Query<(Entity, &mut TransientLight, &mut PointLight)>,
     time: Res<Time>,
     lib: Res<Library>,
     mut water: ResMut<Assets<WaterMaterial>>,
     mut feedback: ResMut<OrderFeedback>,
     mut q: Query<(Entity, &mut Particle, &mut Transform)>,
 ) {
+    for (entity, mut lifetime, mut light) in &mut lights {
+        lifetime.0 -= time.delta_secs();
+        light.intensity *= 0.7;
+        if lifetime.0 <= 0. {
+            commands.entity(entity).despawn();
+        }
+    }
     if let Some(mut material) = water.get_mut(&lib.water) {
         material.settings.w = time.elapsed_secs();
     }
