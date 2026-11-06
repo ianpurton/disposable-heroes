@@ -1,6 +1,6 @@
 ---
 name: 3d-assets
-description: Author procedural 3D assets as Python definitions and build validated GLBs through Blender, with optional inspection snapshots.
+description: Build procedural Python models into validated GLBs using Blender, with snapshots and contact sheets.
 ---
 
 # 3D assets
@@ -12,11 +12,12 @@ description: Author procedural 3D assets as Python definitions and build validat
 - The runner seeds `random` and provides `context.seed`. An optional `_textures.py`
   batch hook declares `OUTPUTS` and writes to `context.texture_directory`.
 - Use `--model NAME` for one asset; `--blends DIR` saves packed inspection snapshots.
-  Python stays authoritative. Run `--help` for path and Blender overrides; defaults
-  resolve from the working directory, not the skill's installation location.
+  Python stays authoritative. `--help` lists overrides; default paths use the
+  working directory, not the skill location.
+- Use [scripts/preview.py](scripts/preview.py) for a bounds-fitted contact sheet;
+  it accepts a GLB directory or manifest, optional ordering and render settings.
 - Match the consuming project's scale, pivots, axes and animation names. Inspect
   exports in the target application; keep test previews and logs in `./tmp`.
 
-Builds isolate models in fresh Blender processes, validate exports, and stage files
-before publication. Failures preserve prior outputs. Check the export manifest and
-per-model logs; test repeatability and failure preservation after pipeline changes.
+Use isolated builds, validation and staged publication. Test repeatability and
+failure preservation when changing the pipeline.

@@ -61,7 +61,7 @@ cargo run -- --fresh --smoke-test
 
 The smoke test captures a frame in `tmp/battlefield.png` and exits. It renders offscreen and needs no desktop display. In the Codex command sandbox, GPU devices are hidden; run GPU validation through the approved escalated execution path (see AGENTS.md). Host interactive playtesting is the final check for controls and performance.
 
-`blender -b -t 4 --python scripts/preview_assets.py` renders `tmp/asset-library.png`.
+`just preview-models` renders `tmp/asset-library.png`.
 
 ## Data provenance
 

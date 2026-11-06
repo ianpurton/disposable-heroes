@@ -11,3 +11,7 @@ glb name:
 # Save generated inspection snapshots; Python definitions remain authoritative.
 blends:
     python3 .agents/skills/3d-assets/scripts/build.py --seed 1993 --blends tmp/blender
+
+# Render a bounds-fitted contact sheet of generated GLBs.
+preview-models:
+    python3 .agents/skills/3d-assets/scripts/preview.py
