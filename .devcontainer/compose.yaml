@@ -1,0 +1,24 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: vscode
+    command: sleep infinity
+    volumes:
+      - ..:/workspace:cached
+      - ${HOME}/.ssh:/home/vscode/.ssh:cached
+      - codex-config:/home/vscode/.codex
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    devices:
+      - /dev/dri:/dev/dri
+    security_opt:
+      - seccomp=unconfined
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+
+volumes:
+  codex-config:
+    name: codex-config

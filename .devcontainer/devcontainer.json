@@ -1,0 +1,15 @@
+{
+  	"name": "Cannon Fodder",
+	"dockerComposeFile": ["compose.yaml", "compose.gpu.generated.yaml"],
+	"service": "dev",
+	"remoteUser": "vscode",
+	"initializeCommand": ["bash", ".devcontainer/initialize-gpu.sh"],
+	"workspaceFolder": "/workspace",
+
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+		// https://github.com/devcontainers/features/issues/1466
+		"moby": false
+		}
+	}
+}
