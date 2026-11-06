@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER = ROOT / '.agents/skills/build-blender-assets/scripts/build.py'
+RUNNER = ROOT / '.agents/skills/3d-assets/scripts/build.py'
 spec = importlib.util.spec_from_file_location('asset_builder', RUNNER)
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
@@ -55,7 +55,7 @@ class AssetPipeline(unittest.TestCase):
             (output / 'aaa_valid.glb').write_bytes(previous)
             old_manifest = b'{"previous": "preserve me"}\n'
             (output / 'manifest.json').write_bytes(old_manifest)
-            result = subprocess.run([sys.executable, str(RUNNER), '--source', str(source), '--output', str(output),
+            result = subprocess.run([sys.executable, str(RUNNER), '--seed', '1993', '--source', str(source), '--output', str(output),
                                      '--logs', str(ROOT / 'tmp/asset-pipeline-tests/failure')], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('zzz_broken', result.stderr)
@@ -67,7 +67,7 @@ class AssetPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='single with spaces ', dir=ROOT / 'tmp') as temporary:
             directory = Path(temporary)
             before = json.loads((ROOT / 'assets/glb/manifest.json').read_text())['models']['soldier']
-            result = subprocess.run([sys.executable, str(RUNNER), '--model', 'soldier', '--output', str(directory / 'glb'),
+            result = subprocess.run([sys.executable, str(RUNNER), '--source', str(ROOT / 'assets/models'), '--seed', '1993', '--model', 'soldier', '--output', str(directory / 'glb'),
                                      '--logs', str(ROOT / 'tmp/asset-pipeline-tests/single')], cwd='/tmp', capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             actual = builder.inspect_glb(directory / 'glb/soldier.glb', CLIPS)
@@ -78,7 +78,7 @@ class AssetPipeline(unittest.TestCase):
         manifest = json.loads((ROOT / 'assets/glb/manifest.json').read_text())
         with tempfile.TemporaryDirectory(prefix='repeat-', dir=ROOT / 'tmp') as temporary:
             output = Path(temporary) / 'glb'
-            result = subprocess.run([sys.executable, str(RUNNER), '--output', str(output), '--textures', str(Path(temporary) / 'textures'),
+            result = subprocess.run([sys.executable, str(RUNNER), '--seed', '1993', '--output', str(output), '--textures', str(Path(temporary) / 'textures'),
                                      '--logs', str(ROOT / 'tmp/asset-pipeline-tests/repeat')], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             repeated = json.loads((output / 'manifest.json').read_text())

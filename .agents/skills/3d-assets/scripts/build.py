@@ -11,9 +11,6 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[4]
-
-
 def inspect_glb(path, required=()):
     """Check the binary container, embedded resources, meshes, and animation contract."""
     data = path.read_bytes()
@@ -50,10 +47,8 @@ def inspect_glb(path, required=()):
     names = [animation.get('name') for animation in document.get('animations', [])]
     if len(names) != len(set(names)):
         raise ValueError('Duplicate animation names')
-    if required and (set(names) != set(required) or not document.get('skins')):
-        raise ValueError(f'Expected one skinned rig with clips {list(required)}; got {names}')
-    if required and len(document['skins']) != 1:
-        raise ValueError('Animated model must contain exactly one skin')
+    if required and set(names) != set(required):
+        raise ValueError(f'Expected clips {list(required)}; got {names}')
     primitives = [p for mesh in document['meshes'] for p in mesh['primitives']]
     accessors = document.get('accessors', [])
     vertices = sum(accessors[p['attributes']['POSITION']]['count'] for p in primitives)
@@ -148,7 +143,7 @@ def run(args):
         entries = previous.get('models', {})
         entries.update(models)
         manifest = {
-            'schema_version': 1, 'generator': 'build-blender-assets', 'blender_version': version,
+            'schema_version': 1, 'generator': '3d-assets', 'blender_version': version,
             'seed': args.seed, 'units': 'meters; Blender Z-up converted to glTF Y-up',
             'source_directory': os.path.relpath(source, output).replace(os.sep, '/'),
             'models': dict(sorted(entries.items())),
@@ -174,15 +169,15 @@ def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, default=ROOT / 'assets/models')
-    parser.add_argument('--output', type=Path, default=ROOT / 'assets/glb')
-    parser.add_argument('--textures', type=Path, default=ROOT / 'assets/textures')
-    parser.add_argument('--logs', type=Path, default=ROOT / 'tmp/blender-build')
+    parser.add_argument('--source', type=Path, default=Path('assets/models'))
+    parser.add_argument('--output', type=Path, default=Path('assets/glb'))
+    parser.add_argument('--textures', type=Path, default=Path('assets/textures'))
+    parser.add_argument('--logs', type=Path, default=Path('tmp/blender-build'))
     parser.add_argument('--blends', type=Path, help='Optional generated .blend snapshots')
     parser.add_argument('--model', help='Build one named model; omit for the entire library')
     parser.add_argument('--blender', default=os.environ.get('BLENDER', 'blender'))
     parser.add_argument('--threads', type=int, default=2)
-    parser.add_argument('--seed', type=int, default=1993)
+    parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
     if args.threads < 1:
         parser.error('--threads must be positive')

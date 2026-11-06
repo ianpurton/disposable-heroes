@@ -20,7 +20,7 @@ just blends                 # also save .blend snapshots in tmp/blender/
 python3 scripts/generate_audio.py
 ```
 
-Python definitions in `assets/models/` are authoritative; GLBs in `assets/glb/` are generated and checked in. The root Justfile calls the exporter in `.agents/skills/build-blender-assets/`. Blender and Just are needed only to rebuild art. Use `BLENDER=/path/to/blender just glbs` to select a Blender executable. Logs go to `tmp/blender-build/`; generated `.blend` snapshots are for inspection and manual edits will be overwritten.
+Python definitions in `assets/models/` are authoritative; GLBs in `assets/glb/` are generated and checked in. The root Justfile calls the exporter in `.agents/skills/3d-assets/`. Blender and Just are needed only to rebuild art. Use `BLENDER=/path/to/blender just glbs` to select a Blender executable. Logs go to `tmp/blender-build/`; generated `.blend` snapshots are for inspection and manual edits will be overwritten.
 
 Click Deploy or left-click the battlefield to start the mission. Controls: left click moves or selects a soldier; hold right click to fire; press both mouse buttons to use the selected explosive. Use the squad panel to select groups, split an individual, regroup, select grenades/rockets, deploy and retry. Keyboard equivalents: 1–3 squads, S split, J regroup, G grenades, X rockets, Enter deploy/continue, R retry. Scroll zooms; screen edges pan. The camera follows the active living squad leader near the viewing edges; manual scrolling pauses tracking briefly. F1 hides the HUD; F12 captures `tmp/battlefield.png`.
 

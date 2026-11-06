@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generator": "build-blender-assets",
+  "generator": "3d-assets",
   "blender_version": "5.2.3 LTS",
   "seed": 1993,
   "units": "meters; Blender Z-up converted to glTF Y-up",

@@ -1,0 +1,4 @@
+interface:
+  display_name: "3D Assets"
+  short_description: "Build procedural Python assets into validated GLBs"
+  default_prompt: "Author or build procedural 3D assets using the project's Blender pipeline."

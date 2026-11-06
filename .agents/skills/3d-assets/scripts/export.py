@@ -15,7 +15,7 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--stage', type=Path, required=True)
     parser.add_argument('--model', required=True)
-    parser.add_argument('--seed', type=int, default=1993)
+    parser.add_argument('--seed', type=int, required=True)
     parser.add_argument('--save-blend', action='store_true')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
     bpy.ops.wm.read_factory_settings(use_empty=True)
