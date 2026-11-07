@@ -3,7 +3,6 @@ use bevy::{
     asset::RenderAssetUsages,
     camera::ScalingMode,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    input::mouse::MouseWheel,
     mesh::{Indices, PrimitiveTopology},
     render::view::screenshot::{Screenshot, save_to_disk},
 };
@@ -77,8 +76,7 @@ struct Library {
 #[derive(Resource)]
 struct CameraRig {
     focus: Vec3,
-    zoom: f32,
-    manual_scroll: f32,
+    offset: Vec2,
 }
 #[derive(Component)]
 struct AnimationState(usize);
@@ -130,6 +128,7 @@ impl Plugin for BattlefieldPlugin {
             Update,
             (
                 reload,
+                update_camera,
                 unit_views,
                 animate,
                 particles,
@@ -226,34 +225,18 @@ fn setup(
         shot: sounds[0].clone(),
         boom: sounds[1].clone(),
     };
-    let mut focus = game
-        .battle
-        .units
-        .iter()
-        .find(|u| !u.enemy)
-        .map(|u| world(u.pos))
-        .unwrap_or(Vec3::ZERO);
-    if game.battle.map.width <= 25 {
-        focus = Vec3::new(
-            game.battle.map.width as f32,
-            0.,
-            game.battle.map.height as f32,
-        );
-    }
-    focus.x -= 2.;
-    commands.insert_resource(CameraRig {
-        focus,
-        zoom: 32.,
-        manual_scroll: 0.,
-    });
+    let rig = initial_rig(&game.battle);
+    let focus = rig.focus;
+    commands.insert_resource(rig);
     let camera = commands
         .spawn((
             MainCamera,
             Camera3d::default(),
-            bevy::pbr::ContactShadows::default(),
+            bevy::light::ShadowFilteringMethod::Gaussian,
             Projection::Orthographic(OrthographicProjection {
-                scaling_mode: ScalingMode::FixedVertical {
-                    viewport_height: 32.,
+                scaling_mode: ScalingMode::Fixed {
+                    width: VIEW_WIDTH,
+                    height: VIEW_HEIGHT,
                 },
                 ..OrthographicProjection::default_3d()
             }),
@@ -268,6 +251,7 @@ fn setup(
             },
         ))
         .id();
+    let mut offscreen_target = None;
     if game.smoke {
         let mut image = Image::new_target_texture(
             1920,
@@ -280,11 +264,13 @@ fn setup(
         commands
             .entity(camera)
             .insert(bevy::camera::RenderTarget::Image(handle.clone().into()));
+        offscreen_target = Some(handle.clone());
         commands.insert_resource(Offscreen(handle));
     }
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.68, 0.81, 0.72),
-        brightness: 120.,
+        // Broad sky fill keeps shaded terrain and uniforms readable.
+        brightness: 1800.,
         ..default()
     });
     commands.spawn((
@@ -292,10 +278,11 @@ fn setup(
             illuminance: 10500.,
             color: Color::srgb(1., 0.91, 0.76),
             shadow_maps_enabled: true,
-            contact_shadows_enabled: true,
+            contact_shadows_enabled: false,
             ..default()
         },
-        Transform::from_xyz(-20., 45., 12.).looking_at(Vec3::ZERO, Vec3::Y),
+        // A higher sun keeps canopy shadows close to the trees.
+        Transform::from_xyz(-12., 60., 8.).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     spawn_level(
         &mut commands,
@@ -304,10 +291,25 @@ fn setup(
         &mut meshes,
         &mut materials,
     );
+    let hud_camera = commands
+        .spawn((
+            Camera2d,
+            Camera {
+                order: 1,
+                clear_color: bevy::camera::ClearColorConfig::None,
+                ..default()
+            },
+        ))
+        .id();
+    if let Some(handle) = offscreen_target {
+        commands
+            .entity(hud_camera)
+            .insert(bevy::camera::RenderTarget::Image(handle.into()));
+    }
     let panel = commands
         .spawn((
             HudPanel,
-            UiTargetCamera(camera),
+            UiTargetCamera(hud_camera),
             Node {
                 position_type: PositionType::Absolute,
                 left: px(18),
@@ -613,13 +615,7 @@ fn input(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cursor_windows: Query<(Entity, &Window)>,
-    mut camera: Query<
-        (&Camera, &GlobalTransform, &mut Transform, &mut Projection),
-        With<MainCamera>,
-    >,
-    mut wheel: MessageReader<MouseWheel>,
-    time: Res<Time>,
-    mut rig: ResMut<CameraRig>,
+    mut camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut game: ResMut<Game>,
 ) {
     if keys.just_pressed(KeyCode::F1) {
@@ -651,13 +647,9 @@ fn input(
     let Ok(window) = windows.single() else {
         return;
     };
-    let Ok((cam, gt, mut transform, mut projection)) = camera.single_mut() else {
+    let Ok((cam, gt)) = camera.single_mut() else {
         return;
     };
-    for w in wheel.read() {
-        rig.zoom = (rig.zoom - w.y * 1.5).clamp(14., 60.);
-    }
-    rig.manual_scroll = (rig.manual_scroll - time.delta_secs()).max(0.);
     for (entity, _) in &cursor_windows {
         commands
             .entity(entity)
@@ -680,30 +672,20 @@ fn input(
                         .all()
                 })
             });
-        if !blocked && game.briefing && mouse.just_pressed(MouseButton::Left) {
+        if !blocked
+            && game.briefing
+            && mouse.just_pressed(MouseButton::Left)
+            && cam
+                .logical_viewport_rect()
+                .is_some_and(|rect| rect.contains(cursor))
+        {
             advance(&mut game);
         }
-        if !game.briefing {
-            let mut pan = Vec3::ZERO;
-            if cursor.x < 12. {
-                pan.x -= 1.;
-            }
-            if cursor.x > window.width() - 12. {
-                pan.x += 1.;
-            }
-            if cursor.y < 12. {
-                pan.z -= 1.;
-            }
-            if cursor.y > window.height() - 12. {
-                pan.z += 1.;
-            }
-            if pan.length_squared() > 0. {
-                rig.manual_scroll = 1.5;
-            }
-            let zoom = rig.zoom;
-            rig.focus += pan * time.delta_secs() * zoom * 0.7;
-            rig.focus.x = rig.focus.x.clamp(0., game.battle.map.width as f32 * 2.);
-            rig.focus.z = rig.focus.z.clamp(0., game.battle.map.height as f32 * 2.);
+        if !game.briefing
+            && cam
+                .logical_viewport_rect()
+                .is_some_and(|rect| rect.contains(cursor))
+        {
             if let Ok(ray) = cam.viewport_to_world(gt, cursor) {
                 if let Some(d) = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y)) {
                     let p = ray.get_point(d);
@@ -745,56 +727,8 @@ fn input(
     if mouse.just_released(MouseButton::Right) {
         game.queue.push(Command::Aim(None));
     }
-    // Track the active living leader inside the usable viewport, clear of the HUD.
-    if !game.briefing
-        && game.battle.outcome == Outcome::Playing
-        && rig.manual_scroll <= 0.
-        && !mouse.pressed(MouseButton::Right)
-    {
-        let leader = game
-            .battle
-            .units
-            .iter()
-            .find(|u| game.battle.selected_unit(u))
-            .or_else(|| {
-                game.battle
-                    .units
-                    .iter()
-                    .find(|u| u.alive && !u.enemy && u.group == game.battle.active_group)
-            });
-        if let Some(leader) = leader {
-            let position = world(leader.pos);
-            if let Ok(screen) = cam.world_to_viewport(gt, position) {
-                let left = if game.hud {
-                    266_f32.min(window.width() * 0.4)
-                } else {
-                    0.
-                };
-                let desired =
-                    tracking_anchor(screen, Vec2::new(window.width(), window.height()), left);
-                if desired != screen {
-                    if let Ok(ray) = cam.viewport_to_world(gt, desired) {
-                        if let Some(distance) =
-                            ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y))
-                        {
-                            let correction = position - ray.get_point(distance);
-                            rig.focus += correction * (1. - (-8. * time.delta_secs()).exp());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    rig.focus.x = rig.focus.x.clamp(0., game.battle.map.width as f32 * 2.);
-    rig.focus.z = rig.focus.z.clamp(0., game.battle.map.height as f32 * 2.);
-    *transform = Transform::from_translation(rig.focus + Vec3::new(0., 40., 28.))
-        .looking_at(rig.focus, Vec3::Y);
-    if let Projection::Orthographic(p) = &mut *projection {
-        p.scaling_mode = ScalingMode::FixedVertical {
-            viewport_height: rig.zoom,
-        };
-    }
 }
+
 fn simulate(mut game: ResMut<Game>, time: Res<Time<Fixed>>) {
     let cmds = std::mem::take(&mut game.queue);
     if (game.benchmark || game.combat_preview) && game.briefing {
@@ -883,12 +817,7 @@ fn reload(
             battle.kill_objective = game.rules[game.index].0;
             battle.destroy_objective = game.rules[game.index].1;
             assign_roster(&mut battle, &game.snapshot);
-            rig.focus = battle
-                .units
-                .iter()
-                .find(|u| !u.enemy && u.alive)
-                .map(|u| world(u.pos))
-                .unwrap_or(Vec3::ZERO);
+            *rig = initial_rig(&battle);
             spawn_level(&mut commands, &battle, &lib, &mut meshes, &mut materials);
             game.battle = battle;
             game.briefing = true;
@@ -945,9 +874,8 @@ fn unit_views(
 
                 continue;
             }
-            let target = if u.fire { u.aim } else { u.target };
-            let delta = world(target) - world(u.pos);
-            if delta.length_squared() > 0.01 {
+            let delta = unit_facing_direction(u);
+            if delta.length_squared() > 0.000001 {
                 t.rotation = soldier_rotation(delta);
             }
             if game.battle.selected_unit(u) {
@@ -1450,40 +1378,24 @@ fn capture(
     }
 }
 
-// Leave a generous central area so small movements do not continually move the view.
-fn tracking_anchor(screen: Vec2, size: Vec2, hud_width: f32) -> Vec2 {
-    let width = (size.x - hud_width).max(1.);
-    Vec2::new(
-        screen
-            .x
-            .clamp(hud_width + width * 0.22, size.x - width * 0.22),
-        screen.y.clamp(size.y * 0.25, size.y * 0.75),
-    )
-}
-#[cfg(test)]
-mod camera_tests {
-    use super::*;
-    #[test]
-    fn tracks_all_edges_and_keeps_soldiers_clear_of_hud() {
-        let size = Vec2::new(1440., 900.);
-        assert_eq!(
-            tracking_anchor(Vec2::new(800., 450.), size, 296.),
-            Vec2::new(800., 450.)
-        );
-        let top = tracking_anchor(Vec2::new(800., 20.), size, 296.);
-        assert_eq!(top.y, 225.);
-        let bottom = tracking_anchor(Vec2::new(800., 890.), size, 296.);
-        assert_eq!(bottom.y, 675.);
-        assert!(tracking_anchor(Vec2::new(100., 450.), size, 296.).x > 296.);
-        assert!(tracking_anchor(Vec2::new(1430., 450.), size, 296.).x < 1430.);
-        assert!(
-            tracking_anchor(Vec2::new(100., 450.), size, 0.).x
-                < tracking_anchor(Vec2::new(100., 450.), size, 296.).x
-        );
+// AI routes and squad formation paths can differ from the last commanded target.
+fn unit_facing_direction(unit: &Unit) -> Vec3 {
+    if unit.fire {
+        return world(unit.aim) - world(unit.pos);
     }
+    let movement = world(unit.pos) - world(unit.previous);
+    if movement.length_squared() > 0.000001 {
+        return movement;
+    }
+    let target =
+        unit.path
+            .front()
+            .copied()
+            .unwrap_or(if unit.enemy { unit.aim } else { unit.target });
+    world(target) - world(unit.pos)
 }
 
-// Blender soldiers face -Y; glTF converts that direction to Bevy +Z.
+// The procedural model conversion maps source -Y forward to Bevy +Z.
 fn soldier_rotation(direction: Vec3) -> Quat {
     Quat::from_rotation_y(direction.x.atan2(direction.z))
 }
@@ -1491,7 +1403,36 @@ fn soldier_rotation(direction: Vec3) -> Quat {
 mod facing_tests {
     use super::*;
     #[test]
-    fn exported_soldier_faces_its_target_in_every_direction() {
+    fn pursuing_enemy_faces_movement_instead_of_stale_destination() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/Data/AmigaTheOne/mapm1.map");
+        let battle = Battle::new(
+            ImportedLevel::load(&path, None).expect("bundled mission"),
+            1993,
+        );
+        let mut enemy = battle
+            .units
+            .iter()
+            .find(|u| u.enemy)
+            .expect("enemy")
+            .clone();
+        enemy.fire = false;
+        enemy.previous = Point::new(80., 80.);
+        enemy.pos = Point::new(80., 80.3);
+        enemy.target = Point::new(80., 20.);
+        enemy.path = [Point::new(100., 100.)].into();
+        let direction = unit_facing_direction(&enemy).normalize();
+        assert!((soldier_rotation(direction) * Vec3::Z - Vec3::Z).length() < 0.0001);
+        enemy.fire = true;
+        enemy.aim = Point::new(60., 80.3);
+        let direction = unit_facing_direction(&enemy).normalize();
+        assert!((soldier_rotation(direction) * Vec3::Z + Vec3::X).length() < 0.0001);
+        enemy.fire = false;
+        enemy.previous = enemy.pos;
+        assert!(unit_facing_direction(&enemy).x > 0.);
+    }
+    #[test]
+    fn procedural_soldier_faces_its_target_in_every_direction() {
         for direction in [
             Vec3::X,
             -Vec3::X,
@@ -1675,5 +1616,187 @@ mod foliage_tests {
             assert_eq!(transform.translation, Vec3::new(3., 0., 7.));
             assert_eq!(visibility == Visibility::Hidden, nearby);
         }
+    }
+}
+
+// Logical battlefield dimensions stay fixed across window sizes.
+const VIEW_HEIGHT: f32 = 32.;
+const VIEW_WIDTH: f32 = VIEW_HEIGHT * 1640. / 1080.;
+const TILE_SIZE: f32 = 16. * SCALE;
+const EDGE_PIXELS: f32 = 24.;
+const EDGE_TILES_PER_SECOND: f32 = 1.;
+const CAMERA_BOOM: Vec3 = Vec3::new(0., 40., 28.);
+
+fn clamp_focus(mut focus: Vec3, map_size: Vec2) -> Vec3 {
+    // Orthographic screen height projects onto the ground along the tilted view.
+    let half = Vec2::new(
+        VIEW_WIDTH,
+        VIEW_HEIGHT * CAMERA_BOOM.length() / CAMERA_BOOM.y,
+    ) * 0.5;
+    let center = map_size * 0.5;
+    let travel = (center - half).max(Vec2::ZERO);
+    focus.x = focus.x.clamp(center.x - travel.x, center.x + travel.x);
+    focus.z = focus.z.clamp(center.y - travel.y, center.y + travel.y);
+    focus
+}
+fn map_size(battle: &Battle) -> Vec2 {
+    Vec2::new(battle.map.width as f32, battle.map.height as f32) * TILE_SIZE
+}
+fn initial_rig(battle: &Battle) -> CameraRig {
+    let focus = battle
+        .units
+        .iter()
+        .find(|u| !u.enemy && u.alive)
+        .map(|u| world(u.pos))
+        .unwrap_or(Vec3::ZERO);
+    CameraRig {
+        focus: clamp_focus(focus, map_size(battle)),
+        offset: Vec2::ZERO,
+    }
+}
+fn edge_direction(cursor: Vec2, rect: Rect) -> Vec2 {
+    if !rect.contains(cursor) {
+        return Vec2::ZERO;
+    }
+    let local = cursor - rect.min;
+    let size = rect.size();
+    let axis = |p: f32, extent: f32| {
+        if p < EDGE_PIXELS {
+            -(1. - p / EDGE_PIXELS)
+        } else if p > extent - EDGE_PIXELS {
+            1. - (extent - p) / EDGE_PIXELS
+        } else {
+            0.
+        }
+    };
+    Vec2::new(axis(local.x, size.x), axis(local.y, size.y)).clamp_length_max(1.)
+}
+fn update_camera(
+    game: Res<Game>,
+    time: Res<Time>,
+    windows: Query<&Window>,
+    mut rig: ResMut<CameraRig>,
+    mut cameras: Query<(&mut Camera, &mut Transform, &mut Projection), With<MainCamera>>,
+    mut ui_scale: ResMut<UiScale>,
+) {
+    let Ok((mut camera, mut transform, mut projection)) = cameras.single_mut() else {
+        return;
+    };
+    let (size, scale_factor, cursor) = windows
+        .single()
+        .map(|w| {
+            (
+                Vec2::new(w.width(), w.height()),
+                w.scale_factor(),
+                w.cursor_position(),
+            )
+        })
+        .unwrap_or((Vec2::new(1920., 1080.), 1., None));
+    let scale = (size.x / 1920.).min(size.y / 1080.);
+    if scale <= 0. {
+        return;
+    }
+    ui_scale.0 = scale;
+    let origin = (size - Vec2::new(1920., 1080.) * scale) * 0.5;
+    let rect = Rect::from_corners(
+        origin + Vec2::new(280., 0.) * scale,
+        origin + Vec2::new(1920., 1080.) * scale,
+    );
+    camera.viewport = Some(bevy::camera::Viewport {
+        physical_position: (rect.min * scale_factor).round().as_uvec2(),
+        physical_size: (rect.size() * scale_factor)
+            .round()
+            .as_uvec2()
+            .max(UVec2::ONE),
+        ..default()
+    });
+    if !game.briefing && game.battle.outcome == Outcome::Playing {
+        if let Some(leader) = game
+            .battle
+            .units
+            .iter()
+            .find(|u| game.battle.selected_unit(u))
+            .or_else(|| game.battle.units.iter().find(|u| !u.enemy && u.alive))
+        {
+            let target = clamp_focus(world(leader.pos), map_size(&game.battle));
+            rig.focus = rig
+                .focus
+                .lerp(target, 1. - (-10. * time.delta_secs()).exp());
+        }
+    }
+    let direction = if !game.briefing && game.battle.outcome == Outcome::Playing {
+        cursor
+            .map(|p| edge_direction(p, rect))
+            .unwrap_or(Vec2::ZERO)
+    } else {
+        Vec2::ZERO
+    };
+    if direction != Vec2::ZERO {
+        rig.offset += direction * TILE_SIZE * EDGE_TILES_PER_SECOND * time.delta_secs();
+        rig.offset = rig
+            .offset
+            .clamp(Vec2::splat(-2. * TILE_SIZE), Vec2::splat(2. * TILE_SIZE));
+    } else {
+        rig.offset *= (-12. * time.delta_secs()).exp();
+        if rig.offset.length_squared() < 0.000001 {
+            rig.offset = Vec2::ZERO;
+        }
+    }
+    let focus = clamp_focus(
+        rig.focus + Vec3::new(rig.offset.x, 0., rig.offset.y),
+        map_size(&game.battle),
+    );
+    *transform = Transform::from_translation(focus + CAMERA_BOOM).looking_at(focus, Vec3::Y);
+    *projection = Projection::Orthographic(OrthographicProjection {
+        scaling_mode: ScalingMode::Fixed {
+            width: VIEW_WIDTH,
+            height: VIEW_HEIGHT,
+        },
+        ..OrthographicProjection::default_3d()
+    });
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::*;
+    #[test]
+    fn retries_restore_identical_rig_and_framing() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/Data/AmigaTheOne/mapm1.map");
+        let battle = Battle::new(
+            ImportedLevel::load(&path, None).expect("bundled mission"),
+            1993,
+        );
+        let original = initial_rig(&battle);
+        let mut rig = initial_rig(&battle);
+        for _ in 0..3 {
+            rig.focus += Vec3::new(15., 0., 20.);
+            rig.offset = Vec2::splat(2. * TILE_SIZE);
+            assert_ne!(rig.offset, Vec2::ZERO);
+            rig = initial_rig(&battle);
+            assert_eq!(rig.focus, original.focus);
+            assert_eq!(rig.offset, Vec2::ZERO);
+        }
+    }
+    #[test]
+    fn edge_zones_exclude_hud_and_letterbox() {
+        let rect = Rect::from_corners(Vec2::new(280., 20.), Vec2::new(1920., 1100.));
+        assert_eq!(edge_direction(Vec2::new(279., 500.), rect), Vec2::ZERO);
+        assert_eq!(edge_direction(Vec2::new(500., 19.), rect), Vec2::ZERO);
+        assert_eq!(edge_direction(Vec2::new(500., 500.), rect), Vec2::ZERO);
+        assert_eq!(edge_direction(Vec2::new(280., 500.), rect), -Vec2::X);
+        assert!(edge_direction(Vec2::new(1919., 1099.), rect).min_element() > 0.);
+        assert!(edge_direction(Vec2::new(500., 20.), rect).y < 0.);
+    }
+    #[test]
+    fn bounds_cover_full_large_map_and_center_small_maps() {
+        let size = Vec2::splat(200.);
+        let lo = clamp_focus(Vec3::splat(-1000.), size);
+        let hi = clamp_focus(Vec3::splat(1000.), size);
+        assert!((lo.x - VIEW_WIDTH * 0.5).abs() < 0.001);
+        assert!((hi.x - (200. - VIEW_WIDTH * 0.5)).abs() < 0.001);
+        assert!(hi.z > 170.);
+        let small = clamp_focus(Vec3::splat(999.), Vec2::new(10., 8.));
+        assert_eq!((small.x, small.z), (5., 4.));
     }
 }

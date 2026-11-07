@@ -2,6 +2,8 @@
 
 A Rust / Bevy 0.20 jungle squad-combat project inspired by Cannon Fodder. Native OpenFodder map import, Rust-generated models and audio, fixed-step combat, named soldiers and mission retry.
 
+![Disposable Heroes gameplay screenshot](screenshot.png)
+
 ## Linux host
 
 Run from the repository root. The binary targets `x86_64-unknown-linux-gnu`. Use `just build` (or plain `just`) to rebuild the game, and `just play` to build and launch it with your saved campaign. `just play --fresh` starts a new campaign. Asset gallery commands build the gallery separately.

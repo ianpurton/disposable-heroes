@@ -135,6 +135,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 Some(Window {
                     title: "Disposable Heroes".into(),
+                    prevent_default_event_handling: true,
                     resolution: (1920, 1080).into(),
                     ..default()
                 })
