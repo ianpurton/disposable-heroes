@@ -33,8 +33,10 @@ on the Linux host; container rendering checks need a headless or virtual display
 
 ## Procedural model pipeline
 
-Python definitions in `assets/models/` are the source of truth. Generated GLBs live
-in `assets/glb/`. Use the repository-local `3d-assets` skill when changing
-models or the export pipeline. Its runner is invoked by `just glbs` (all models),
-`just glb soldier` (one model), and `just blends` (also save inspection snapshots
-under `tmp/blender/`). Do not hand-edit generated GLBs or treat snapshots as source.
+Rust definitions in `crates/models/` and `crates/sound/` are authoritative.
+The game lives in `crates/game/`; run commands from the workspace root.
+Use the repository-local `3d-assets` skill for models, sounds and asset tooling.
+`just assets-build`, `just assets-preview`, `just assets-capture`, and
+`just assets-validate` build, inspect and validate the direct Bevy pipeline.
+`just assets-export [model]` optionally writes interoperability GLBs to `tmp/glb/`.
+Do not use exported GLBs as source or introduce a Blender/Python build dependency.

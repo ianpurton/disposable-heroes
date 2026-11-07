@@ -10,9 +10,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: python3 scripts/fetch_fixtures.py
       - run: cargo fmt --check
-      - run: cargo test --locked --no-default-features
+      - run: cargo test --locked -p disposable-heroes --no-default-features
+      - run: cargo test --locked --workspace --features asset-export -j 1
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo check --locked -p disposable-heroes -p models -p sound --target wasm32-unknown-unknown --lib --bin disposable-heroes
       - run: cargo build --locked --release --target x86_64-unknown-linux-gnu
-      - run: mkdir -p dist && cp target/x86_64-unknown-linux-gnu/release/disposable-heroes dist/ && cp -r assets scripts tests README.md docs dist/ && rm -r dist/assets/models
+      - run: mkdir -p dist && cp target/x86_64-unknown-linux-gnu/release/disposable-heroes dist/ && cp -r assets scripts tests README.md docs dist/
       - uses: actions/upload-artifact@v4
         with:
           name: disposable-heroes-linux
@@ -29,9 +32,6 @@ jobs:
           name: disposable-heroes-windows
           path: |
             target/x86_64-pc-windows-msvc/release/disposable-heroes.exe
-            assets/glb/
-            assets/textures/
-            assets/audio/
             assets/shaders/
             assets/catalogs/
             scripts/fetch_fixtures.py

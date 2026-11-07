@@ -1,4 +1,4 @@
 interface:
-  display_name: "3D Assets"
-  short_description: "Build procedural Python assets into validated GLBs"
-  default_prompt: "Author or build procedural 3D assets using the project's Blender pipeline."
+  display_name: "Procedural Assets"
+  short_description: "Generate and inspect deterministic Bevy models and sounds in Rust"
+  default_prompt: "Author, preview, validate or optionally export procedural assets using the Rust crates and Bevy gallery."

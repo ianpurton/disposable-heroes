@@ -2483,8 +2483,10 @@ name = "disposable-heroes"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "models",
  "serde",
  "serde_json",
+ "sound",
  "thiserror 2.0.21",
 ]
 
@@ -3687,6 +3689,15 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "models"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "gltf",
+ "serde_json",
 ]
 
 [[package]]
@@ -4986,6 +4997,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "sound"
+version = "0.1.0"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]

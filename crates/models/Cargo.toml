@@ -1,0 +1,12 @@
+[package]
+name = "models"
+version = "0.1.0"
+edition = "2024"
+[features]
+export = ["dep:serde_json"]
+[dependencies]
+bevy = { version = "=0.20.1", default-features = false, features = ["std", "bevy_pbr", "bevy_animation"] }
+serde_json = { version = "1", optional = true }
+[dev-dependencies]
+serde_json = "1"
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] }
