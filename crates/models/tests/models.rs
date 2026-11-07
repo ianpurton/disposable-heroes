@@ -160,6 +160,10 @@ fn preserves_legacy_bounds_and_linear_palette() {
     let baseline: serde_json::Value =
         serde_json::from_str(include_str!("legacy-models.json")).unwrap();
     for name in NAMES {
+        // Jungle recipes intentionally replace the legacy silhouettes.
+        if matches!(name, "palm" | "thicket" | "thicket_edge") {
+            continue;
+        }
         let model = generate(name, GenerationOptions::default()).unwrap();
         let (lo, hi) = model.bounds();
         let vector = |key: &str| {
@@ -192,13 +196,13 @@ fn preserves_legacy_bounds_and_linear_palette() {
     }
 }
 #[test]
-fn ground_legacy_byte_colors_and_orientation() {
+fn ground_has_multiscale_contrast_and_opaque_pixels() {
     let image = ground_texture(DEFAULT_SEED);
     let data = image.data.unwrap();
-    assert_eq!(
-        &data[..12],
-        &[209, 222, 171, 255, 210, 223, 172, 255, 227, 240, 164, 255]
-    );
+    assert_eq!(data.len(), 1024 * 1024 * 4);
+    assert!(data.chunks_exact(4).all(|p| p[3] == 255));
+    let greens: Vec<_> = data.chunks_exact(4).map(|p| p[1]).collect();
+    assert!(greens.iter().max().unwrap() - greens.iter().min().unwrap() > 65);
 }
 #[test]
 fn bevy_evaluates_masks_and_procedural_targets() {

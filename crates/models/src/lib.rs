@@ -376,36 +376,58 @@ pub fn ground_texture(seed: u64) -> Image {
     for _ in 0..120 {
         rng.random();
     }
-    let mut data = Vec::with_capacity(256 * 256 * 4);
-    for y in 0..256 {
-        for x in 0..256 {
-            let grain = rng.uniform(-0.035, 0.035);
-            let wave = (x as f64 / 256. * std::f64::consts::TAU * 7.).sin()
-                * (y as f64 / 256. * std::f64::consts::TAU * 5.).sin()
-                * 0.025;
-            let blade = if rng.random() < 0.025 { 0.1 } else { 0. };
-            for v in [
-                0.82 + grain + wave + blade,
-                0.87 + grain + wave + blade,
-                0.67 + grain + wave,
-            ] {
-                // Legacy image pixels were written as byte values, without a transfer curve.
-                data.push(((v as f32).clamp(0., 1.) * 255. + 0.5) as u8);
+    // Periodic value noise: every octave wraps, so all four edges meet.
+    let grids: Vec<(usize, Vec<f32>)> = [4, 11, 29, 83]
+        .into_iter()
+        .map(|n| (n, (0..n * n).map(|_| rng.random() as f32).collect()))
+        .collect();
+    let noise = |x: usize, y: usize, octave: usize| {
+        let (n, grid) = &grids[octave];
+        let px = x as f32 * *n as f32 / 1024.;
+        let py = y as f32 * *n as f32 / 1024.;
+        let ix = px.floor() as usize;
+        let iy = py.floor() as usize;
+        let smooth = |t: f32| t * t * (3. - 2. * t);
+        let u = smooth(px.fract());
+        let v = smooth(py.fract());
+        let at = |dx, dy| grid[((iy + dy) % n) * n + (ix + dx) % n];
+        (at(0, 0) * (1. - u) + at(1, 0) * u) * (1. - v) + (at(0, 1) * (1. - u) + at(1, 1) * u) * v
+    };
+    let mut data = Vec::with_capacity(1024 * 1024 * 4);
+    for y in 0..1024 {
+        for x in 0..1024 {
+            let broad = noise(x, y, 0);
+            let patch = noise(x, y, 1);
+            let detail = noise(x, y, 2);
+            let fine = noise(x, y, 3);
+            let soil = ((patch - 0.59) * 4.).clamp(0., 1.);
+            let grain = rng.uniform(-0.035, 0.035) as f32;
+            let light = 0.65 + broad * 0.45 + detail * 0.35 + fine * 0.18 + grain;
+            let moss = [0.43, 0.53, 0.29];
+            let earth = [0.48, 0.39, 0.23];
+            for c in 0..3 {
+                let stone = if fine > 0.79 && detail > 0.6 {
+                    0.10
+                } else {
+                    0.
+                };
+                let v = (moss[c] * (1. - soil) + earth[c] * soil) * light + stone;
+                data.push((v.clamp(0., 1.) * 255.) as u8);
             }
             data.push(255);
         }
     }
     // Image pixels in Blender start at the bottom-left; Bevy images start at the top-left.
     let data: Vec<_> = data
-        .chunks_exact(256 * 4)
+        .chunks_exact(1024 * 4)
         .rev()
         .flatten()
         .copied()
         .collect();
     let mut image = Image::new(
         Extent3d {
-            width: 256,
-            height: 256,
+            width: 1024,
+            height: 1024,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,

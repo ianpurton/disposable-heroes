@@ -1,19 +1,22 @@
 use super::*;
 
 pub(super) fn build(b: &mut Builder, rng: &mut seed::SeededRandom) {
-    for i in 0..20 {
-        let x = rng.uniform(-0.32, 0.32) as f32;
-        let y = rng.uniform(-0.32, 0.32) as f32;
-        let h = 0.45 + rng.random() as f32 * 0.65;
+    // Broad interlocking crowns above a dark, continuous understory.
+    for i in 0..16 {
+        let a = rng.uniform(0., std::f64::consts::TAU) as f32;
+        let r = rng.uniform(0.05, 0.43) as f32;
+        let upper = i >= 5;
+        let h = if upper {
+            rng.uniform(0.48, 0.88) as f32
+        } else {
+            0.22
+        };
+        let radius = rng.uniform(0.25, 0.40) as f32;
         b.ball(
-            "Jungle leaf",
-            v(x, y, h * 0.65),
-            v(
-                (0.5 - x.abs()).min(0.20),
-                (0.5 - y.abs()).min(0.22),
-                h * 0.5,
-            ),
-            JUNGLE[i % 4],
+            "Layered jungle crown",
+            v(a.cos() * r, a.sin() * r, h),
+            v(radius, radius * 0.92, radius * 0.72),
+            JUNGLE[if upper { 1 + i % 3 } else { 0 }],
             1,
         );
     }

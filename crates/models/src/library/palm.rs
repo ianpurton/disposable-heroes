@@ -5,9 +5,9 @@ pub(super) fn build(b: &mut Builder) {
         let i = i as f32;
         b.rod(
             "Palm trunk",
-            v((i * 0.14).sin() * 0.3, 0., i * 0.55),
-            v(((i + 1.) * 0.14).sin() * 0.3, 0., (i + 1.) * 0.55),
-            0.17,
+            v((i * 0.14).sin() * 0.3, 0., i * 0.36),
+            v(((i + 1.) * 0.14).sin() * 0.3, 0., (i + 1.) * 0.36),
+            0.11,
             WOOD,
         );
     }
@@ -15,13 +15,13 @@ pub(super) fn build(b: &mut Builder) {
         let a = k as f32 * std::f32::consts::TAU / 9.;
         for j in 0..4 {
             let j = j as f32;
-            let r = 0.35 + j * 0.5;
+            let r = 0.22 + j * 0.34;
             let p = v(
                 a.cos() * r + 0.3,
                 a.sin() * r,
-                3.8 + 0.3 * j.sin() - j * 0.18,
+                2.52 + 0.25 * j.sin() - j * j * 0.055,
             );
-            b.ball("Palm frond", p, v(0.7, 0.22, 0.08), LEAF[k % 4], 1);
+            b.ball("Palm frond", p, v(0.43, 0.16, 0.065), LEAF[k % 4], 1);
             b.rotate_last(p, Quat::from_rotation_z(a));
         }
     }

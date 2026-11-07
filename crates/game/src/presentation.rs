@@ -157,7 +157,7 @@ fn setup(
     let options = models::GenerationOptions {
         seed: game.asset_seed,
     };
-    let models: HashMap<String, models::PreparedModel> = models::NAMES
+    let mut models: HashMap<String, models::PreparedModel> = models::NAMES
         .into_iter()
         .map(|name| {
             let definition = models::generate(name, options).expect("valid built-in model");
@@ -173,6 +173,25 @@ fn setup(
             )
         })
         .collect();
+    for variant in 0..6 {
+        let definition = models::generate(
+            "thicket",
+            models::GenerationOptions {
+                seed: game.asset_seed.wrapping_add(variant * 7919),
+            },
+        )
+        .expect("valid jungle variant");
+        models.insert(
+            format!("canopy{variant}"),
+            models::PreparedModel::new(
+                definition,
+                &mut meshes,
+                &mut materials,
+                &mut binds,
+                &mut clips,
+            ),
+        );
+    }
     let mut animations = HashMap::new();
     for (faction, name) in [(false, "soldier"), (true, "enemy")] {
         let (graph, nodes) = models[name].animation_graph();
@@ -231,6 +250,7 @@ fn setup(
         .spawn((
             MainCamera,
             Camera3d::default(),
+            bevy::pbr::ContactShadows::default(),
             Projection::Orthographic(OrthographicProjection {
                 scaling_mode: ScalingMode::FixedVertical {
                     viewport_height: 32.,
@@ -269,8 +289,10 @@ fn setup(
     });
     commands.spawn((
         DirectionalLight {
-            illuminance: 9000.,
+            illuminance: 10500.,
+            color: Color::srgb(1., 0.91, 0.76),
             shadow_maps_enabled: true,
+            contact_shadows_enabled: true,
             ..default()
         },
         Transform::from_xyz(-20., 45., 12.).looking_at(Vec3::ZERO, Vec3::Y),
@@ -423,12 +445,12 @@ fn terrain_mesh(b: &Battle, kind: u8) -> Mesh {
             let c = match kind {
                 1 => [0.035, 0.17, 0.14, 1.],
                 2 => [0.035, 0.085, 0.018, 1.],
-                _ => [0.11 + variation, 0.20 + variation, 0.035 + variation, 1.],
+                _ => [0.33 + variation, 0.43 + variation, 0.18 + variation, 1.],
             };
             for (xx, yy) in [(begin, y), (begin, y + 2), (x, y + 2), (x, y)] {
                 pos.push([xx as f32 * SCALE, h, yy as f32 * SCALE]);
                 norms.push([0., 1., 0.]);
-                uv.push([xx as f32 / 16., yy as f32 / 16.]);
+                uv.push([xx as f32 / 173., yy as f32 / 173.]);
                 colors.push(c);
             }
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -496,37 +518,29 @@ fn spawn_level(
     for patch in disposable_heroes::environment::thickets(&b.map, &catalog) {
         // Each mask cell gets an upright, uniformly scaled instance. Jitter stays
         // inside that cell, preserving the imported paths and openings.
-        for y in (0..patch.depth as usize).step_by(4) {
-            for x in (0..patch.width as usize).step_by(4) {
+        for y in (0..patch.depth as usize).step_by(6) {
+            for x in (0..patch.width as usize).step_by(6) {
                 let gx = patch.x as u64 + x as u64;
                 let gy = patch.y as u64 + y as u64;
                 let hash = gx.wrapping_mul(73856093) ^ gy.wrapping_mul(19349663) ^ 1993;
-                let width = (patch.width - x as f32).min(4.);
-                let depth = (patch.depth - y as f32).min(4.);
+                let width = (patch.width - x as f32).min(6.);
+                let depth = (patch.depth - y as f32).min(6.);
                 let extent = width.min(depth);
-                let scale = extent * SCALE * (0.90 + (hash % 41) as f32 * 0.001);
+                let scale = extent * SCALE * (0.94 + (hash % 71) as f32 * 0.008);
                 let center = world(Point::new(
                     gx as f32
                         + width * 0.5
-                        + (((hash >> 8) % 101) as f32 / 100. - 0.5) * extent * 0.06,
+                        + (((hash >> 8) % 101) as f32 / 100. - 0.5) * extent * 0.65,
                     gy as f32
                         + depth * 0.5
-                        + (((hash >> 16) % 101) as f32 / 100. - 0.5) * extent * 0.06,
+                        + (((hash >> 16) % 101) as f32 / 100. - 0.5) * extent * 0.65,
                 ));
-                let id = model(
-                    commands,
-                    lib,
-                    if hash % 3 == 0 {
-                        "thicket_edge"
-                    } else {
-                        "thicket"
-                    },
-                    center,
-                    scale,
-                );
+                let id = model(commands, lib, &format!("canopy{}", hash % 6), center, scale);
                 commands.entity(id).insert((
                     Foliage { height: scale },
-                    Transform::from_translation(center).with_scale(Vec3::splat(scale)),
+                    Transform::from_translation(center)
+                        .with_scale(Vec3::splat(scale))
+                        .with_rotation(Quat::from_rotation_y(hash as f32 * 0.618)),
                 ));
             }
         }
@@ -542,7 +556,7 @@ fn spawn_level(
             {
                 continue;
             }
-            let name = "grass";
+            let name = if hash % 17 == 0 { "bush" } else { "grass" };
             model(
                 commands,
                 lib,
