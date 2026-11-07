@@ -126,6 +126,9 @@ pub enum Command {
 }
 #[derive(Clone, Debug)]
 pub struct Battle {
+    pub invalid_objectives: bool,
+    /// Explicit indices of designated enemy structures. None uses imported enemy huts.
+    pub objective_buildings: Option<Vec<usize>>,
     pub map: ImportedLevel,
     pub units: Vec<Unit>,
     pub buildings: Vec<Building>,
@@ -236,6 +239,8 @@ impl Battle {
                 .collect::<Vec<_>>(),
         );
         Self {
+            invalid_objectives: false,
+            objective_buildings: Some((0..map.structures.len()).collect()),
             navigation,
             tuning: CombatTuning::default(),
             map,
@@ -718,7 +723,10 @@ impl Battle {
         }
         let mut spawns = vec![];
         for b in &mut self.buildings {
-            if b.health > 0 && !b.vehicle {
+            if b.health > 0
+                && !b.vehicle
+                && (self.destroy_objective || self.units.iter().any(|u| u.enemy && u.alive))
+            {
                 b.spawn -= dt;
                 if b.spawn <= 0. && live.iter().any(|(_, p, e)| !*e && p.distance(b.pos) < 220.) {
                     spawns.push(Point::new(b.pos.x, b.pos.y + 24.));
@@ -758,11 +766,16 @@ impl Battle {
                 });
             }
         }
-        if !self.units.iter().any(|u| !u.enemy && u.alive) {
+        if self.invalid_objectives || !self.units.iter().any(|u| !u.enemy && u.alive) {
             self.outcome = Outcome::Defeat;
         } else if (!self.kill_objective || !self.units.iter().any(|u| u.enemy && u.alive))
             && (!self.destroy_objective
-                || !self.buildings.iter().any(|b| !b.vehicle && b.health > 0))
+                || !self.buildings.iter().enumerate().any(|(i, b)| {
+                    self.objective_buildings
+                        .as_ref()
+                        .map_or(!b.vehicle, |ids| ids.contains(&i))
+                        && b.health > 0
+                }))
         {
             self.outcome = Outcome::Victory;
         }
@@ -818,4 +831,62 @@ pub fn line_of_sight(map: &ImportedLevel, buildings: &[Building], a: Point, b: P
                 .iter()
                 .all(|o| o.health <= 0 || p.distance(o.pos) > 14.)
     })
+}
+
+impl Battle {
+    pub fn configure_objectives(
+        &mut self,
+        kinds: &[crate::campaign::ObjectiveKind],
+    ) -> Result<(), String> {
+        use crate::campaign::ObjectiveKind::*;
+        self.invalid_objectives = true;
+        if kinds.is_empty() {
+            return Err("A phase requires at least one objective".into());
+        }
+        for kind in kinds {
+            if !matches!(kind, KillAllEnemies | DestroyEnemyBuildings) {
+                return Err(format!("Unsupported objective/map combination: {kind:?}"));
+            }
+        }
+        self.invalid_objectives = false;
+        self.kill_objective = kinds.contains(&KillAllEnemies);
+        self.destroy_objective = kinds.contains(&DestroyEnemyBuildings);
+        Ok(())
+    }
+    pub fn objective_progress(
+        &self,
+    ) -> Vec<(
+        crate::campaign::ObjectiveKind,
+        crate::campaign::ObjectiveStatus,
+    )> {
+        use crate::campaign::{ObjectiveKind::*, ObjectiveStatus::*};
+        let mut result = Vec::new();
+        if self.kill_objective {
+            result.push((
+                KillAllEnemies,
+                if self.units.iter().any(|u| u.enemy && u.alive) {
+                    Pending
+                } else {
+                    Completed
+                },
+            ));
+        }
+        if self.destroy_objective {
+            result.push((
+                DestroyEnemyBuildings,
+                if self.buildings.iter().enumerate().any(|(i, b)| {
+                    b.health > 0
+                        && self
+                            .objective_buildings
+                            .as_ref()
+                            .map_or(!b.vehicle, |ids| ids.contains(&i))
+                }) {
+                    Pending
+                } else {
+                    Completed
+                },
+            ));
+        }
+        result
+    }
 }

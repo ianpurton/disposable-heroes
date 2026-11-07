@@ -1,4 +1,6 @@
+mod game_flow;
 mod presentation;
+mod ui;
 use bevy::prelude::*;
 use disposable_heroes::simulation::Command;
 use disposable_heroes::{campaign::*, importer::ImportedLevel, simulation::*};
@@ -8,12 +10,14 @@ pub struct Game {
     pub battle: Battle,
     pub asset_seed: u64,
     pub campaign: Campaign,
-    pub snapshot: Campaign,
+    pub phase_counts: Vec<usize>,
+    pub mission_titles: Vec<String>,
     pub maps: Vec<PathBuf>,
     pub titles: Vec<String>,
     pub index: usize,
-    pub briefing: bool,
+
     pub reload: bool,
+    pub phase_ready: bool,
     pub hud: bool,
     pub queue: Vec<Command>,
     pub save: PathBuf,
@@ -59,9 +63,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "PROPERTY DAMAGE".into(),
         "NO RETURN ADDRESS".into(),
     ];
+    let mut mission_titles = titles.clone();
+    let mut phase_counts = vec![1, 1, 1];
     let mut rules = vec![(true, true); 3];
     let mut aggression = vec![vec![2, 4], vec![4, 8], vec![4, 8]];
     if let Some(file) = value("--map") {
+        mission_titles = vec!["FIELD OPERATIONS".into()];
+        phase_counts = vec![1];
         rules = vec![(true, true)];
         aggression = vec![vec![2, 4]];
         maps = vec![file.into()];
@@ -74,8 +82,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         titles.clear();
         rules.clear();
         aggression.clear();
+        phase_counts.clear();
+        mission_titles.clear();
         for mission in definition.missions {
+            if mission.phases.is_empty() {
+                return Err("Mission has no phases".into());
+            }
+            mission_titles.push(mission.name.clone());
+            phase_counts.push(mission.phases.len());
             for phase in mission.phases {
+                if phase.objectives.is_empty() {
+                    return Err(format!("Phase {} has no required objectives", phase.name).into());
+                }
                 if phase.objectives.iter().any(|o| {
                     !matches!(
                         o.as_str(),
@@ -102,12 +120,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Campaign has no phases".into());
     }
     let save = PathBuf::from("saves/campaign.json");
-    let campaign = if !args.iter().any(|a| a == "--fresh") && save.exists() {
+    let mut campaign = if !args.iter().any(|a| a == "--fresh") && save.exists() {
         Campaign::load(&save)?
     } else {
         Campaign::default()
     };
-    let index = campaign.mission.min(maps.len() - 1);
+    campaign.migrate_progress(&phase_counts);
+    let index = (phase_counts
+        .iter()
+        .take(campaign.progress.mission_index)
+        .sum::<usize>()
+        + campaign.progress.phase_index)
+        .min(maps.len() - 1);
     let resources = value("--tilesets").map(PathBuf::from);
     let map = ImportedLevel::load(&maps[index], resources.as_deref())?;
     check_map(&map)?;
@@ -166,14 +190,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|s| s.parse())
                 .transpose()?
                 .unwrap_or(models::DEFAULT_SEED),
-            snapshot: campaign.clone(),
+            phase_counts,
+            mission_titles,
             campaign,
             maps,
             titles,
             index,
-            briefing: true,
+
             reload: false,
-            hud: true,
+            phase_ready: true,
+            hud: false,
             queue: vec![],
             save,
             status: String::new(),
@@ -190,7 +216,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .filter(|s| s.is_finite() && *s >= 1.)
                 .unwrap_or(20.),
         })
-        .add_plugins(presentation::BattlefieldPlugin)
+        .add_plugins((
+            game_flow::GameFlowPlugin,
+            presentation::BattlefieldPlugin,
+            ui::GameUiPlugin,
+        ))
         .run();
     Ok(())
 }
@@ -220,3 +250,7 @@ fn assign_roster(b: &mut Battle, c: &Campaign) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/screen_lifecycle.inc"]
+mod lifecycle_tests;

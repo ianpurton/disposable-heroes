@@ -160,8 +160,11 @@ fn preserves_legacy_bounds_and_linear_palette() {
     let baseline: serde_json::Value =
         serde_json::from_str(include_str!("legacy-models.json")).unwrap();
     for name in NAMES {
-        // Jungle recipes intentionally replace the legacy silhouettes.
-        if matches!(name, "palm" | "thicket" | "thicket_edge") {
+        // New campaign scenery has no legacy baseline; jungle recipes replace silhouettes.
+        if matches!(
+            name,
+            "hill" | "gravestone" | "palm" | "thicket" | "thicket_edge"
+        ) {
             continue;
         }
         let model = generate(name, GenerationOptions::default()).unwrap();

@@ -9,6 +9,7 @@ mod bunker;
 mod bush;
 mod enemy;
 mod grass;
+mod hill;
 mod hut;
 mod jeep;
 mod palm;
@@ -111,6 +112,8 @@ pub(super) fn build(name: &str, seed: u64) -> Model {
         "hut" => hut::build(&mut b),
         "jeep" => jeep::build(&mut b),
         "palm" => palm::build(&mut b),
+        "hill" => hill::build(&mut b),
+        "gravestone" => hill::grave(&mut b),
         "rock" => rock::build(&mut b),
         "soldier" => soldier::build(&mut b),
         "thicket" => thicket::build(&mut b, &mut rng),

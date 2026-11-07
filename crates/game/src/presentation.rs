@@ -122,6 +122,19 @@ impl Plugin for BattlefieldPlugin {
         .init_resource::<OrderFeedback>()
         .init_resource::<Benchmark>()
         .add_systems(Startup, setup)
+        .add_systems(
+            OnEnter(crate::game_flow::GameScreen::Recruitment),
+            enter_hill,
+        )
+        .add_systems(OnExit(crate::game_flow::GameScreen::Recruitment), exit_hill)
+        .add_systems(
+            OnEnter(crate::game_flow::GameScreen::PhaseComplete),
+            completion_sound,
+        )
+        .add_systems(
+            OnEnter(crate::game_flow::GameScreen::MissionComplete),
+            completion_sound,
+        )
         .add_systems(PreUpdate, input.after(bevy::input::InputSystems))
         .add_systems(FixedUpdate, simulate)
         .add_systems(
@@ -330,7 +343,7 @@ fn setup(
             bevy::picking::Pickable::IGNORE,
             Text::new("DISPOSABLE\nHEROES"),
             TextFont {
-                font_size: FontSize::Px(20.),
+                font_size: FontSize::Px(16.),
                 ..default()
             },
             TextColor(Color::srgb(0.93, 0.88, 0.65)),
@@ -384,17 +397,6 @@ fn setup(
                 game.queue.push(action.clone());
             });
     }
-    let e = button(&mut commands, "DEPLOY / CONTINUE", panel);
-    commands
-        .entity(e)
-        .observe(|_: On<Activate>, mut game: ResMut<Game>| advance(&mut game));
-    let e = button(&mut commands, "RETRY MISSION", panel);
-    commands
-        .entity(e)
-        .observe(|_: On<Activate>, mut game: ResMut<Game>| {
-            game.campaign = game.snapshot.clone();
-            game.reload = true;
-        });
     let status = commands
         .spawn((
             StatusText,
@@ -407,7 +409,11 @@ fn setup(
         ))
         .id();
     commands.entity(panel).add_child(status);
-    commands.spawn((AudioPlayer::new(sounds[2].clone()), PlaybackSettings::LOOP));
+    commands.spawn((
+        crate::ui::Music,
+        AudioPlayer::new(sounds[2].clone()),
+        PlaybackSettings::LOOP,
+    ));
     commands.insert_resource(library);
 }
 fn model(commands: &mut Commands, lib: &Library, name: &str, p: Vec3, scale: f32) -> Entity {
@@ -609,6 +615,8 @@ fn spawn_level(
     }
 }
 fn input(
+    screen: Res<State<crate::game_flow::GameScreen>>,
+    flow: Res<crate::game_flow::Flow>,
     mut commands: Commands,
     buttons: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<Button>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -624,12 +632,8 @@ fn input(
     if keys.just_pressed(KeyCode::F12) {
         game.screenshot = true;
     }
-    if keys.just_pressed(KeyCode::KeyR) {
-        game.campaign = game.snapshot.clone();
-        game.reload = true;
-    }
-    if keys.just_pressed(KeyCode::Enter) {
-        advance(&mut game);
+    if *screen.get() != crate::game_flow::GameScreen::Playing || flow.paused || flow.options {
+        return;
     }
     for (key, c) in [
         (KeyCode::Digit1, Command::Group(0)),
@@ -672,16 +676,7 @@ fn input(
                         .all()
                 })
             });
-        if !blocked
-            && game.briefing
-            && mouse.just_pressed(MouseButton::Left)
-            && cam
-                .logical_viewport_rect()
-                .is_some_and(|rect| rect.contains(cursor))
-        {
-            advance(&mut game);
-        }
-        if !game.briefing
+        if *screen.get() == crate::game_flow::GameScreen::Playing
             && cam
                 .logical_viewport_rect()
                 .is_some_and(|rect| rect.contains(cursor))
@@ -729,17 +724,16 @@ fn input(
     }
 }
 
-fn simulate(mut game: ResMut<Game>, time: Res<Time<Fixed>>) {
+fn simulate(
+    mut game: ResMut<Game>,
+    time: Res<Time<Fixed>>,
+    screen: Res<State<crate::game_flow::GameScreen>>,
+    flow: Res<crate::game_flow::Flow>,
+) {
     let cmds = std::mem::take(&mut game.queue);
-    if (game.benchmark || game.combat_preview) && game.briefing {
-        game.briefing = false;
-        let goal = Point::new(
-            game.battle.map.width as f32 * 8.,
-            game.battle.map.height as f32 * 5.,
-        );
-        game.battle.command(Command::Move(goal));
-    }
-    if game.briefing {
+    if !game.smoke
+        && (*screen.get() != crate::game_flow::GameScreen::Playing || flow.paused || flow.options)
+    {
         return;
     }
     if game.benchmark || game.combat_preview {
@@ -792,7 +786,8 @@ fn reload(
     mut commands: Commands,
     mut game: ResMut<Game>,
     lib: Res<Library>,
-    entities: Query<Entity, With<LevelEntity>>,
+    entities: Query<Entity, Or<(With<LevelEntity>, With<Particle>, With<TransientLight>)>>,
+    mut feedback: ResMut<OrderFeedback>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut rig: ResMut<CameraRig>,
@@ -801,6 +796,7 @@ fn reload(
         return;
     }
     game.reload = false;
+    feedback.0 = None;
     match ImportedLevel::load(&game.maps[game.index], game.resources.as_deref()).and_then(|m| {
         check_map(&m).map_err(|e| disposable_heroes::importer::ImportError::Invalid {
             file: game.maps[game.index].display().to_string(),
@@ -816,11 +812,13 @@ fn reload(
             battle.tuning.aggression(&game.aggression[game.index]);
             battle.kill_objective = game.rules[game.index].0;
             battle.destroy_objective = game.rules[game.index].1;
-            assign_roster(&mut battle, &game.snapshot);
+            assign_roster(&mut battle, &game.campaign);
             *rig = initial_rig(&battle);
             spawn_level(&mut commands, &battle, &lib, &mut meshes, &mut materials);
             game.battle = battle;
-            game.briefing = true;
+            game.phase_ready = true;
+            game.status.clear();
+
             game.queue.clear();
         }
         Err(e) => game.status = e.to_string(),
@@ -1192,7 +1190,7 @@ fn button(commands: &mut Commands, label: &str, parent: Entity) -> Entity {
             Button,
             Hovered::default(),
             Node {
-                min_height: px(28),
+                min_height: px(22),
                 width: percent(100),
                 padding: UiRect::axes(px(9), px(4)),
                 ..default()
@@ -1217,42 +1215,9 @@ fn button(commands: &mut Commands, label: &str, parent: Entity) -> Entity {
     commands.entity(parent).add_child(e);
     e
 }
-fn advance(game: &mut Game) {
-    if game.briefing {
-        info!("Deploying mission {}", game.index + 1);
-        game.briefing = false;
-        return;
-    }
-    if game.battle.outcome == Outcome::Defeat {
-        game.reload = true;
-        return;
-    }
-    if game.battle.outcome != Outcome::Victory || game.campaign.mission > game.index {
-        return;
-    }
-    let dead: Vec<_> = game
-        .battle
-        .units
-        .iter()
-        .filter(|u| !u.enemy && !u.alive)
-        .map(|u| u.id - 10000)
-        .collect();
-    let mut next = game.campaign.clone();
-    next.complete(&dead);
-    if let Err(e) = next.save(&game.save) {
-        game.status = format!("Save failed: {e}");
-        return;
-    }
-    game.campaign = next;
-    if game.index + 1 < game.maps.len() {
-        game.index += 1;
-        game.snapshot = game.campaign.clone();
-        game.reload = true;
-    } else {
-        game.status = "CAMPAIGN COMPLETE. The paperwork survived.".into();
-    }
-}
 fn hud(
+    screen: Res<State<crate::game_flow::GameScreen>>,
+    flow: Res<crate::game_flow::Flow>,
     game: Res<Game>,
     mut texts: Query<(
         &mut Text,
@@ -1265,7 +1230,10 @@ fn hud(
     diagnostics: Res<DiagnosticsStore>,
 ) {
     for mut p in &mut panels {
-        *p = if game.hud {
+        *p = if *screen.get() == crate::game_flow::GameScreen::Playing
+            && !flow.paused
+            && !flow.options
+        {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -1278,18 +1246,6 @@ fn hud(
             Color::srgb(0.12, 0.18, 0.12)
         });
     }
-    let enemies = game
-        .battle
-        .units
-        .iter()
-        .filter(|u| u.enemy && u.alive)
-        .count();
-    let buildings = game
-        .battle
-        .buildings
-        .iter()
-        .filter(|b| !b.vehicle && b.health > 0)
-        .count();
     let fps = diagnostics
         .get(&FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|d| d.smoothed())
@@ -1303,10 +1259,7 @@ fn hud(
         .join(", ");
     for (mut text, roster, title, status) in &mut texts {
         if title {
-            **text = format!(
-                "DISPOSABLE\nHEROES\n\n{}\n\nENEMY {:02}   HUTS {:02}",
-                game.titles[game.index], enemies, buildings
-            );
+            **text = crate::ui::hud::objectives(&game);
         } else if let Some(slot) = roster {
             **text = game
                 .battle
@@ -1333,22 +1286,16 @@ fn hud(
                 .unwrap_or("-".into());
         } else if status {
             **text = format!(
-                "GRENADES {}   ROCKETS {}\nSELECTED: {:?}\n\n{}\n\nLEFT MOVE / RIGHT FIRE\nBOTH BUTTONS EXPLOSIVE\nF1 HUD / F12 CAPTURE\n\n{}\nFALLEN: {}\n{:.0} FPS",
+                "GRENADES {}   ROCKETS {}\n{:?}\n{}{}",
                 game.battle.grenades,
                 game.battle.rockets,
                 game.battle.weapon,
-                if game.briefing {
-                    "ORDERS: Eliminate troops.\nDestroy enemy buildings.\nClick battlefield to deploy."
-                } else {
-                    match game.battle.outcome {
-                        Outcome::Playing => "Keep your heads down.",
-                        Outcome::Victory => "MISSION COMPLETE",
-                        Outcome::Defeat => "SQUAD LOST. Retry available.",
-                    }
-                },
                 game.status,
-                memorial,
-                fps
+                if game.hud {
+                    format!("\n{fps:.0} FPS • Fallen: {memorial}")
+                } else {
+                    String::new()
+                }
             );
         }
     }
@@ -1672,6 +1619,8 @@ fn edge_direction(cursor: Vec2, rect: Rect) -> Vec2 {
     Vec2::new(axis(local.x, size.x), axis(local.y, size.y)).clamp_length_max(1.)
 }
 fn update_camera(
+    flow: Res<crate::game_flow::Flow>,
+    screen: Res<State<crate::game_flow::GameScreen>>,
     game: Res<Game>,
     time: Res<Time>,
     windows: Query<&Window>,
@@ -1682,6 +1631,11 @@ fn update_camera(
     let Ok((mut camera, mut transform, mut projection)) = cameras.single_mut() else {
         return;
     };
+    if *screen.get() == crate::game_flow::GameScreen::Recruitment {
+        *transform =
+            Transform::from_xyz(-139., 13., -132.).looking_at(Vec3::new(-150., 1., -150.), Vec3::Y);
+        return;
+    }
     let (size, scale_factor, cursor) = windows
         .single()
         .map(|w| {
@@ -1699,7 +1653,7 @@ fn update_camera(
     ui_scale.0 = scale;
     let origin = (size - Vec2::new(1920., 1080.) * scale) * 0.5;
     let rect = Rect::from_corners(
-        origin + Vec2::new(280., 0.) * scale,
+        origin + Vec2::new(0., 0.) * scale,
         origin + Vec2::new(1920., 1080.) * scale,
     );
     camera.viewport = Some(bevy::camera::Viewport {
@@ -1710,7 +1664,11 @@ fn update_camera(
             .max(UVec2::ONE),
         ..default()
     });
-    if !game.briefing && game.battle.outcome == Outcome::Playing {
+    if !flow.paused
+        && !flow.options
+        && *screen.get() == crate::game_flow::GameScreen::Playing
+        && game.battle.outcome == Outcome::Playing
+    {
         if let Some(leader) = game
             .battle
             .units
@@ -1724,7 +1682,11 @@ fn update_camera(
                 .lerp(target, 1. - (-10. * time.delta_secs()).exp());
         }
     }
-    let direction = if !game.briefing && game.battle.outcome == Outcome::Playing {
+    let direction = if !flow.paused
+        && !flow.options
+        && *screen.get() == crate::game_flow::GameScreen::Playing
+        && game.battle.outcome == Outcome::Playing
+    {
         cursor
             .map(|p| edge_direction(p, rect))
             .unwrap_or(Vec2::ZERO)
@@ -1799,4 +1761,35 @@ mod viewport_tests {
         let small = clamp_focus(Vec3::splat(999.), Vec2::new(10., 8.));
         assert_eq!((small.x, small.z), (5., 4.));
     }
+}
+
+#[derive(Component)]
+struct HillEntity;
+fn enter_hill(mut commands: Commands, game: Res<Game>, lib: Res<Library>) {
+    let origin = Vec3::new(-150., 0., -150.);
+    let hill = model(&mut commands, &lib, "hill", origin, 1.);
+    commands.entity(hill).insert(HillEntity);
+    for (i, s) in game.campaign.roster.iter().filter(|s| s.alive).enumerate() {
+        let p = origin + Vec3::new(-4. + i as f32 * 1.1, 2., 0.);
+        let e = model(&mut commands, &lib, "soldier", p, 1.);
+        commands.entity(e).insert(HillEntity);
+        let _ = s;
+    }
+    for i in 0..game.campaign.memorial.len() {
+        let p = origin + Vec3::new(-4. + (i % 8) as f32 * 1.1, 1.3, 2. + (i / 8) as f32);
+        let e = model(&mut commands, &lib, "gravestone", p, 0.6);
+        commands.entity(e).insert(HillEntity);
+    }
+}
+fn exit_hill(mut commands: Commands, entities: Query<Entity, With<HillEntity>>) {
+    for e in &entities {
+        commands.entity(e).despawn();
+    }
+}
+
+fn completion_sound(mut commands: Commands, lib: Res<Library>) {
+    commands.spawn((
+        AudioPlayer::new(lib.shot.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
 }

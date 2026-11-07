@@ -18,7 +18,9 @@ mod library;
 #[path = "../../seed.rs"]
 mod seed;
 pub const DEFAULT_SEED: u64 = 1993;
-pub const NAMES: [&str; 15] = [
+pub const NAMES: [&str; 17] = [
+    "hill",
+    "gravestone",
     "bridge",
     "bunker",
     "bush",
