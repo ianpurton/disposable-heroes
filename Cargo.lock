@@ -2483,11 +2483,15 @@ name = "disposable-heroes"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "js-sys",
  "models",
  "serde",
  "serde_json",
  "sound",
  "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

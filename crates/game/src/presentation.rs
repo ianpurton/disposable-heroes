@@ -1,10 +1,11 @@
 use crate::*;
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy::{
     asset::RenderAssetUsages,
     camera::ScalingMode,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     mesh::{Indices, PrimitiveTopology},
-    render::view::screenshot::{Screenshot, save_to_disk},
 };
 use bevy::{picking::hover::Hovered, ui_widgets::Activate};
 use std::collections::HashMap;
@@ -45,6 +46,7 @@ struct Button;
 #[derive(Component)]
 struct MainCamera;
 #[derive(Resource)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct Offscreen(Handle<Image>);
 #[derive(Component)]
 struct TransientLight(f32);
@@ -88,7 +90,7 @@ struct Foliage {
 }
 #[derive(Resource)]
 struct Benchmark {
-    start: std::time::Instant,
+    start: bevy::platform::time::Instant,
     samples: Vec<f64>,
     max_entities: usize,
     max_meshes: usize,
@@ -99,7 +101,7 @@ struct Benchmark {
 impl Default for Benchmark {
     fn default() -> Self {
         Self {
-            start: std::time::Instant::now(),
+            start: bevy::platform::time::Instant::now(),
             samples: vec![],
             max_entities: 0,
             max_meshes: 0,
@@ -1301,12 +1303,13 @@ fn hud(
     }
 }
 fn capture(
-    mut commands: Commands,
+    #[cfg(not(target_arch = "wasm32"))] mut commands: Commands,
     mut game: ResMut<Game>,
     mut exit: MessageWriter<AppExit>,
-    offscreen: Option<Res<Offscreen>>,
+    #[cfg(not(target_arch = "wasm32"))] offscreen: Option<Res<Offscreen>>,
 ) {
     game.frames += 1;
+    #[cfg(not(target_arch = "wasm32"))]
     if game.screenshot || game.smoke && !game.benchmark && game.frames == 360 {
         let _ = std::fs::create_dir_all("tmp");
         commands

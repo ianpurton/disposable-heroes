@@ -1,6 +1,6 @@
 //! Native CF1 map reader. File coordinates remain in original 16-pixel tiles.
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
+use std::path::Path;
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
     #[error("{file}: {message}")]
@@ -14,8 +14,9 @@ fn invalid(file: &str, message: impl Into<String>) -> ImportError {
         message: message.into(),
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn read(path: &Path) -> Result<Vec<u8>, ImportError> {
-    fs::read(path).map_err(|e| ImportError::Io(path.display().to_string(), e))
+    std::fs::read(path).map_err(|e| ImportError::Io(path.display().to_string(), e))
 }
 fn word(b: &[u8], i: usize) -> u16 {
     u16::from_be_bytes([b[i], b[i + 1]])
@@ -275,4 +276,76 @@ impl ImportedLevel {
         ids.dedup();
         ids
     }
+}
+
+// Cache the complete bundled campaign before starting Bevy. Retries and phase
+// transitions use the same validated importer without blocking browser I/O.
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static BROWSER_FILES: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> = Default::default();
+}
+#[cfg(target_arch = "wasm32")]
+fn read(path: &Path) -> Result<Vec<u8>, ImportError> {
+    BROWSER_FILES
+        .with(|files| {
+            files
+                .borrow()
+                .get(&path.to_string_lossy().to_string())
+                .cloned()
+        })
+        .ok_or_else(|| {
+            invalid(
+                &path.display().to_string(),
+                "Browser resource was not loaded",
+            )
+        })
+}
+#[cfg(target_arch = "wasm32")]
+async fn fetch(path: &str) -> Result<Vec<u8>, String> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+    if let Some(bytes) = BROWSER_FILES.with(|files| files.borrow().get(path).cloned()) {
+        return Ok(bytes);
+    }
+    let window = web_sys::window().ok_or("No browser window")?;
+    let response = JsFuture::from(window.fetch_with_str(path))
+        .await
+        .map_err(|e| format!("GET {path}: {e:?}"))?;
+    let response: web_sys::Response = response
+        .dyn_into()
+        .map_err(|_| format!("Invalid response for {path}"))?;
+    if !response.ok() {
+        return Err(format!("GET {path}: HTTP {}", response.status()));
+    }
+    let buffer = JsFuture::from(
+        response
+            .array_buffer()
+            .map_err(|e| format!("{path}: {e:?}"))?,
+    )
+    .await
+    .map_err(|e| format!("Read {path}: {e:?}"))?;
+    let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+    BROWSER_FILES.with(|files| files.borrow_mut().insert(path.into(), bytes.clone()));
+    Ok(bytes)
+}
+#[cfg(target_arch = "wasm32")]
+pub async fn preload_browser_maps() -> Result<(), String> {
+    for path in [
+        "data/Data/AmigaTheOne/mapm1.map",
+        "data/Data/AmigaTheOne/mapm2.map",
+        "data/Data/AmigaAction/mapm3.map",
+    ] {
+        let map_path = Path::new(path);
+        let map = fetch(path).await?;
+        let sprites = fetch(&map_path.with_extension("spt").to_string_lossy()).await?;
+        let level = ImportedLevel::parse(&map, &sprites).map_err(|e| format!("{path}: {e}"))?;
+        let dir = map_path.parent().ok_or("Map has no directory")?;
+        for name in [&level.base, &level.subset] {
+            for extension in ["hit", "bht", "swp"] {
+                fetch(&dir.join(format!("{name}.{extension}")).to_string_lossy()).await?;
+            }
+        }
+        ImportedLevel::load(map_path, None).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

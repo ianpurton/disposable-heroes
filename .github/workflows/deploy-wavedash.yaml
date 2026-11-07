@@ -4,9 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Stable GitHub Release tag, e.g. v0.2.0'
-        required: true
+        description: 'Release tag (blank = latest stable)'
+        required: false
+        default: ''
         type: string
+      publish:
+        description: 'Publish game to Wavedash'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -30,10 +36,15 @@ jobs:
       - name: Verify version and configuration
         run: |
           set -euo pipefail
+          if [[ -z "$VERSION" ]]; then
+            VERSION="$(gh release view --repo "$GITHUB_REPOSITORY" \
+              --json tagName -q '.tagName')"
+          fi
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Stable version required'; exit 1; }
           test -n "$WAVEDASH_TOKEN" || { echo 'Configure WAVEDASH_TOKEN secret'; exit 1; }
           test -n "$WAVEDASH_GAME_ID" || { echo 'Configure WAVEDASH_GAME_ID variable'; exit 1; }
           gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q '.isPrerelease' | grep -qx false
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Download exact stable release build
         run: |
@@ -54,7 +65,8 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.wavedash/bin" >> "$GITHUB_PATH"
 
-      - name: Upload and publish Wavedash build
+      - name: Upload Wavedash build
+        id: upload
         run: |
           set -euo pipefail
           # Generated on the runner, never committed to the repository.
@@ -63,9 +75,38 @@ jobs:
           wavedash build push -m "Disposable Heroes $VERSION" | tee /tmp/wavedash-upload.log
           build_id="$(sed -nE 's/^.*Build ID:[[:space:]]*([^[:space:]]+).*$/\1/p' /tmp/wavedash-upload.log | tail -1)"
           test -n "$build_id" || { echo 'Could not extract Wavedash build ID'; exit 1; }
-          wavedash publish "$build_id" --yes --title "Disposable Heroes $VERSION"
+          playtest_url="$(grep -oE 'https://[^[:space:]]+/playtest/[^[:space:]]+' /tmp/wavedash-upload.log | tail -1)"
+          test -n "$playtest_url" || { echo 'Could not extract Wavedash playtest URL'; exit 1; }
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+          echo "Playtest URL: $playtest_url"
           {
             echo "### Wavedash deployment"
             echo "Version: $VERSION"
             echo "Wavedash build: $build_id"
+            echo "Playtest URL: $playtest_url"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish Wavedash build
+        if: ${{ inputs.publish == true }}
+        env:
+          BUILD_ID: ${{ steps.upload.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..20}; do
+            if wavedash publish "$BUILD_ID" --yes --title "Disposable Heroes $VERSION" > /tmp/wavedash-publish.log 2>&1; then
+              cat /tmp/wavedash-publish.log
+              exit 0
+            else
+              status=$?
+            fi
+            cat /tmp/wavedash-publish.log
+            if ! grep -Fq 'Only completed builds can be published' /tmp/wavedash-publish.log; then
+              exit "$status"
+            fi
+            if [[ "$attempt" -eq 20 ]]; then
+              echo 'Build was not ready to publish after 20 attempts'
+              exit "$status"
+            fi
+            echo "Build is still processing (attempt $attempt/20); retrying in 15 seconds"
+            sleep 15
+          done

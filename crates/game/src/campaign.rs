@@ -1,9 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    io::{self, Write},
-    path::Path,
-};
+use std::{io, path::Path};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Soldier {
     pub id: u32,
@@ -51,7 +47,7 @@ impl Default for Campaign {
 }
 impl Campaign {
     pub fn load(path: &Path) -> io::Result<Self> {
-        let value: Self = serde_json::from_slice(&fs::read(path)?)?;
+        let value: Self = serde_json::from_slice(&crate::storage::read(path)?)?;
         if value.version != 1 && value.version != 2 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -61,15 +57,9 @@ impl Campaign {
         Ok(value)
     }
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        if let Some(p) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            fs::create_dir_all(p)?;
-        }
-        let temp = path.with_extension("tmp");
-        let mut file = fs::File::create(&temp)?;
-        file.write_all(&serde_json::to_vec_pretty(self)?)?;
-        file.sync_all()?;
-        fs::rename(temp, path)
+        crate::storage::write(path, &serde_json::to_vec_pretty(self)?)
     }
+
     pub fn migrate_progress(&mut self, phase_counts: &[usize]) {
         if self.version != 1 {
             return;

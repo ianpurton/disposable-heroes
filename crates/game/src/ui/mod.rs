@@ -62,11 +62,12 @@ impl Default for Settings {
 pub struct GameUiPlugin;
 impl Plugin for GameUiPlugin {
     fn build(&self, app: &mut App) {
-        let settings = std::fs::read("saves/settings.json")
-            .ok()
-            .and_then(|s| serde_json::from_slice::<Settings>(&s).ok())
-            .filter(|s| s.version == 1)
-            .unwrap_or_default();
+        let settings =
+            disposable_heroes::storage::read(std::path::Path::new("saves/settings.json"))
+                .ok()
+                .and_then(|s| serde_json::from_slice::<Settings>(&s).ok())
+                .filter(|s| s.version == 1)
+                .unwrap_or_default();
         app.init_resource::<Actions>()
             .insert_resource(settings)
             .add_systems(Startup, apply_window)
@@ -200,10 +201,11 @@ fn actions(
         Action::Master | Action::Music | Action::Effects | Action::Fullscreen | Action::Resolution
     ) && settings.is_changed()
     {
-        let _ = std::fs::create_dir_all("saves");
         if let Ok(bytes) = serde_json::to_vec(&*settings) {
-            let _ = std::fs::write("saves/settings.tmp", bytes)
-                .and_then(|_| std::fs::rename("saves/settings.tmp", "saves/settings.json"));
+            let _ = disposable_heroes::storage::write(
+                std::path::Path::new("saves/settings.json"),
+                &bytes,
+            );
         }
     }
 }

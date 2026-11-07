@@ -32,14 +32,34 @@ pub struct Game {
     pub combat_preview: bool,
     pub benchmark_seconds: f32,
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     if let Err(e) = run() {
         eprintln!("Disposable Heroes: {e}");
         std::process::exit(1);
     }
 }
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    std::panic::set_hook(Box::new(|info| {
+        web_sys::console::error_1(&format!("Disposable Heroes panic: {info}").into());
+    }));
+    wasm_bindgen_futures::spawn_local(async {
+        let result = async {
+            disposable_heroes::importer::preload_browser_maps().await?;
+            run().map_err(|e| e.to_string())
+        }
+        .await;
+        if let Err(error) = result {
+            web_sys::console::error_1(&format!("Disposable Heroes startup failed: {error}").into());
+        }
+    });
+}
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(not(target_arch = "wasm32"))]
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(target_arch = "wasm32")]
+    let args: Vec<String> = vec![];
     let value = |key: &str| {
         args.iter()
             .position(|a| a == key)
@@ -75,6 +95,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         maps = vec![file.into()];
         titles = vec!["FIELD OPERATIONS".into()];
     }
+    #[cfg(not(target_arch = "wasm32"))]
     if let Some(file) = value("--campaign") {
         let definition: CampaignDefinition = serde_json::from_slice(&std::fs::read(file)?)?;
         let dir = PathBuf::from(value("--maps").ok_or("--campaign requires --maps DIRECTORY")?);
@@ -120,7 +141,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Campaign has no phases".into());
     }
     let save = PathBuf::from("saves/campaign.json");
-    let mut campaign = if !args.iter().any(|a| a == "--fresh") && save.exists() {
+    #[cfg(not(target_arch = "wasm32"))]
+    let has_save = save.exists();
+    #[cfg(target_arch = "wasm32")]
+    let has_save = disposable_heroes::storage::read(&save).is_ok();
+    let mut campaign = if !args.iter().any(|a| a == "--fresh") && has_save {
         Campaign::load(&save)?
     } else {
         Campaign::default()
@@ -148,9 +173,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let smoke = benchmark || combat_preview || args.iter().any(|a| a == "--smoke-test");
     let plugins = DefaultPlugins
         .set(AssetPlugin {
+            #[cfg(not(target_arch = "wasm32"))]
             file_path: std::fs::canonicalize("assets")?
                 .to_string_lossy()
                 .into_owned(),
+            #[cfg(target_arch = "wasm32")]
+            file_path: "assets".into(),
             ..default()
         })
         .set(WindowPlugin {
@@ -159,6 +187,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 Some(Window {
                     title: "Disposable Heroes".into(),
+                    #[cfg(target_arch = "wasm32")]
+                    canvas: Some("#game".into()),
+                    #[cfg(target_arch = "wasm32")]
+                    fit_canvas_to_parent: true,
                     prevent_default_event_handling: true,
                     resolution: (1920, 1080).into(),
                     ..default()
