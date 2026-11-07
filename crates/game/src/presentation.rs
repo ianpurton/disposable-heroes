@@ -426,7 +426,7 @@ fn model(commands: &mut Commands, lib: &Library, name: &str, p: Vec3, scale: f32
     commands.entity(spawned.root).insert(LevelEntity);
     spawned.root
 }
-fn terrain_mesh(b: &Battle, kind: u8) -> Mesh {
+fn terrain_mesh(b: &Battle, kind: u8) -> Option<Mesh> {
     let mut pos = vec![];
     let mut norms = vec![];
     let mut uv = vec![];
@@ -466,15 +466,22 @@ fn terrain_mesh(b: &Battle, kind: u8) -> Mesh {
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
         }
     }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
+    // A map need not contain every terrain kind (for example, water).
+    // Keep absent layers out of Assets<Mesh> instead of uploading empty buffers.
+    if pos.is_empty() {
+        return None;
+    }
+    Some(
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, norms)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+        .with_inserted_indices(Indices::U32(indices)),
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, norms)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
-    .with_inserted_indices(Indices::U32(indices))
 }
 fn spawn_level(
     commands: &mut Commands,
@@ -505,23 +512,15 @@ fn spawn_level(
             metallic: if kind == 1 { 0.18 } else { 0. },
             ..default()
         });
-        let mesh = meshes.add(terrain_mesh(b, kind));
+        // Retain the layer entity so destruction can introduce an absent kind later.
+        let mut layer = commands.spawn((LevelEntity, TerrainView(kind), Transform::default()));
+        if let Some(mesh) = terrain_mesh(b, kind) {
+            layer.insert(Mesh3d(meshes.add(mesh)));
+        }
         if kind == 1 {
-            commands.spawn((
-                LevelEntity,
-                TerrainView(kind),
-                Mesh3d(mesh),
-                MeshMaterial3d(lib.water.clone()),
-                Transform::default(),
-            ));
+            layer.insert(MeshMaterial3d(lib.water.clone()));
         } else {
-            commands.spawn((
-                LevelEntity,
-                TerrainView(kind),
-                Mesh3d(mesh),
-                MeshMaterial3d(material),
-                Transform::default(),
-            ));
+            layer.insert(MeshMaterial3d(material));
         }
     }
     let catalog = disposable_heroes::environment::JungleCatalog::bundled();
@@ -837,7 +836,7 @@ fn unit_views(
     mut gizmos: Gizmos,
     mut feedback: ResMut<OrderFeedback>,
     time: Res<Time<Fixed>>,
-    mut ground: Query<(&TerrainView, &mut Mesh3d)>,
+    ground: Query<(Entity, &TerrainView)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     if let Some((point, accepted, _)) = feedback.0 {
@@ -918,8 +917,12 @@ fn unit_views(
         }
     }
     if terrain_changed {
-        for (kind, mut mesh) in &mut ground {
-            mesh.0 = meshes.add(terrain_mesh(&game.battle, kind.0));
+        for (entity, kind) in &ground {
+            if let Some(mesh) = terrain_mesh(&game.battle, kind.0) {
+                commands.entity(entity).insert(Mesh3d(meshes.add(mesh)));
+            } else {
+                commands.entity(entity).remove::<Mesh3d>();
+            }
         }
     }
     for (e, p) in &pickups {
@@ -1724,6 +1727,57 @@ fn update_camera(
 #[cfg(test)]
 mod viewport_tests {
     use super::*;
+    #[test]
+    fn terrain_layers_omit_absent_kinds_and_keep_valid_triangles() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/Data/AmigaTheOne/mapm1.map");
+        let mut battle = Battle::new(ImportedLevel::load(&path, None).unwrap(), 1993);
+        assert!(
+            terrain_mesh(&battle, 1).is_none(),
+            "first mission has no water"
+        );
+        for kind in 0..3 {
+            let mesh = terrain_mesh(&battle, kind);
+            if let Some(mesh) = mesh {
+                assert_valid_terrain(&mesh);
+            }
+        }
+        // Each uniform map has exactly one visible layer. Switching its terrain
+        // also exercises layers disappearing and reappearing after destruction.
+        for (present, hit) in [(0, 0), (1, 5), (2, 3), (0, 0)] {
+            battle.map.terrain.hit.fill(hit);
+            for kind in 0..3 {
+                match terrain_mesh(&battle, kind) {
+                    Some(mesh) => {
+                        assert_eq!(kind, present);
+                        assert_valid_terrain(&mesh);
+                    }
+                    None => assert_ne!(kind, present),
+                }
+            }
+        }
+    }
+
+    fn assert_valid_terrain(mesh: &Mesh) {
+        let bevy::mesh::VertexAttributeValues::Float32x3(positions) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+        else {
+            panic!("terrain must have 3D positions");
+        };
+        assert!(!positions.is_empty());
+        assert!(positions.iter().flatten().all(|v| v.is_finite()));
+        let indices = mesh.indices().expect("indexed terrain triangles");
+        assert!(indices.len() > 0);
+        assert_eq!(indices.len() % 3, 0);
+        assert!(indices.iter().all(|i| i < positions.len()));
+        for triangle in indices.iter().collect::<Vec<_>>().chunks_exact(3) {
+            let a = Vec3::from_array(positions[triangle[0]]);
+            let b = Vec3::from_array(positions[triangle[1]]);
+            let c = Vec3::from_array(positions[triangle[2]]);
+            assert!((b - a).cross(c - a).length_squared() > 0.);
+        }
+    }
+
     #[test]
     fn retries_restore_identical_rig_and_framing() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
