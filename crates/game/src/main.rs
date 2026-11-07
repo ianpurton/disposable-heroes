@@ -179,6 +179,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .into_owned(),
             #[cfg(target_arch = "wasm32")]
             file_path: "assets".into(),
+            #[cfg(target_arch = "wasm32")]
+            meta_check: bevy::asset::AssetMetaCheck::Never,
             ..default()
         })
         .set(WindowPlugin {
