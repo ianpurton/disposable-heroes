@@ -4,11 +4,11 @@ A Rust / Bevy 0.20 jungle squad-combat project inspired by Cannon Fodder. Native
 
 ## Linux host
 
-Run from the repository root. The binary targets `x86_64-unknown-linux-gnu`.
+Run from the repository root. The binary targets `x86_64-unknown-linux-gnu`. Use `just build` (or plain `just`) to rebuild the game, and `just play` to build and launch it with your saved campaign. `just play --fresh` starts a new campaign. Asset gallery commands build the gallery separately.
 
 ```sh
 python3 scripts/fetch_fixtures.py
-cargo run --release -- --fresh
+just play --fresh
 ```
 
 The workspace contains `crates/game` (the `disposable-heroes` package),

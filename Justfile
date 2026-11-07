@@ -1,5 +1,12 @@
-# Generate assets in memory and compile the gallery.
-default: assets-build
+# Build the Linux game executable.
+default: build
+
+build:
+    cargo build --locked --release -p disposable-heroes --bin disposable-heroes --target x86_64-unknown-linux-gnu
+
+# Build and play; forward game arguments, for example: just play --fresh.
+play *args:
+    cargo run --locked --release -p disposable-heroes --bin disposable-heroes --target x86_64-unknown-linux-gnu -- {{args}}
 
 assets-build:
     cargo build -p disposable-heroes --bin asset-gallery --target x86_64-unknown-linux-gnu

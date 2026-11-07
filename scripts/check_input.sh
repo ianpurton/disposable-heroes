@@ -6,7 +6,12 @@ mkdir -p tmp
 export RUST_LOG=info,disposable_heroes=debug
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/dh-runtime}"
 mkdir -p "$XDG_RUNTIME_DIR"
-BINARY="${DH_BINARY:-target/x86_64-unknown-linux-gnu/release/disposable-heroes}"
+if [[ -n "${DH_BINARY:-}" ]]; then
+    BINARY="$DH_BINARY"
+else
+    cargo build --locked --release -p disposable-heroes --bin disposable-heroes --target x86_64-unknown-linux-gnu
+    BINARY="target/x86_64-unknown-linux-gnu/release/disposable-heroes"
+fi
 "$BINARY" --fresh > tmp/native-input.log 2>&1 &
 game_pid=$!
 trap 'kill "$game_pid" 2>/dev/null || true' EXIT
