@@ -221,6 +221,7 @@ fn setup(
             game.battle.map.height as f32,
         );
     }
+    focus.x -= 2.;
     commands.insert_resource(CameraRig {
         focus,
         zoom: 32.,
@@ -289,9 +290,9 @@ fn setup(
                 position_type: PositionType::Absolute,
                 left: px(18),
                 top: px(18),
-                bottom: px(18),
-                width: px(260),
-                padding: UiRect::all(px(18)),
+
+                width: px(230),
+                padding: UiRect::all(px(12)),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(7),
                 ..default()
@@ -450,6 +451,16 @@ fn spawn_level(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) {
+    commands.spawn((
+        LevelEntity,
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(600., 600.))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.19, 0.27, 0.16),
+            perceptual_roughness: 1.,
+            ..default()
+        })),
+        Transform::from_xyz(b.map.width as f32, -0.12, b.map.height as f32),
+    ));
     for kind in 0..3 {
         let material = materials.add(StandardMaterial {
             base_color: Color::WHITE,
@@ -483,25 +494,44 @@ fn spawn_level(
     }
     let catalog = disposable_heroes::environment::JungleCatalog::bundled();
     for patch in disposable_heroes::environment::thickets(&b.map, &catalog) {
-        let center = world(Point::new(
-            patch.x + patch.width * 0.5,
-            patch.y + patch.depth * 0.5,
-        ));
-        let height = (patch.width.min(patch.depth) * SCALE * 0.7).clamp(0.12, 0.85);
-        let name = if (patch.x as u32 + patch.y as u32) % 3 == 0 {
-            "thicket_edge"
-        } else {
-            "thicket"
-        };
-        let id = model(commands, lib, name, center, 1.);
-        commands.entity(id).insert((
-            Foliage { height },
-            Transform::from_translation(center).with_scale(Vec3::new(
-                patch.width * SCALE,
-                height,
-                patch.depth * SCALE,
-            )),
-        ));
+        // Each mask cell gets an upright, uniformly scaled instance. Jitter stays
+        // inside that cell, preserving the imported paths and openings.
+        for y in (0..patch.depth as usize).step_by(4) {
+            for x in (0..patch.width as usize).step_by(4) {
+                let gx = patch.x as u64 + x as u64;
+                let gy = patch.y as u64 + y as u64;
+                let hash = gx.wrapping_mul(73856093) ^ gy.wrapping_mul(19349663) ^ 1993;
+                let width = (patch.width - x as f32).min(4.);
+                let depth = (patch.depth - y as f32).min(4.);
+                let extent = width.min(depth);
+                let scale = extent * SCALE * (0.50 + (hash % 101) as f32 * 0.0015);
+                let center = world(Point::new(
+                    gx as f32
+                        + width * 0.5
+                        + (((hash >> 8) % 101) as f32 / 100. - 0.5) * extent * 0.06,
+                    gy as f32
+                        + depth * 0.5
+                        + (((hash >> 16) % 101) as f32 / 100. - 0.5) * extent * 0.06,
+                ));
+                let id = model(
+                    commands,
+                    lib,
+                    if hash % 3 == 0 {
+                        "thicket_edge"
+                    } else {
+                        "thicket"
+                    },
+                    center,
+                    scale,
+                );
+                commands.entity(id).insert((
+                    Foliage { height: scale },
+                    Transform::from_translation(center)
+                        .with_rotation(Quat::from_rotation_y((hash % 628) as f32 * 0.01))
+                        .with_scale(Vec3::splat(scale)),
+                ));
+            }
+        }
     }
     // Deterministic ground dressing: visual only, no collision or changes to imported objects.
     for y in (0..b.map.height * 16).step_by(9) {
@@ -539,20 +569,6 @@ fn spawn_level(
             1.,
         );
     }
-    // Tall peripheral planting frames the miniature without changing the map.
-    for i in 0..b.map.width {
-        if i % 3 == 0 {
-            for z in [-1.5, b.map.height as f32 * 2. + 1.5] {
-                model(
-                    commands,
-                    lib,
-                    if i % 3 == 0 { "tree" } else { "palm" },
-                    Vec3::new(i as f32 * 2. + (i as f32 * 1.7).sin() * 0.7, 0., z),
-                    1.1,
-                );
-            }
-        }
-    }
     for (i, b) in b.buildings.iter().enumerate() {
         let e = model(
             commands,
@@ -584,6 +600,7 @@ fn input(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
+    cursor_windows: Query<(Entity, &Window)>,
     mut camera: Query<
         (&Camera, &GlobalTransform, &mut Transform, &mut Projection),
         With<MainCamera>,
@@ -629,12 +646,32 @@ fn input(
         rig.zoom = (rig.zoom - w.y * 1.5).clamp(14., 60.);
     }
     rig.manual_scroll = (rig.manual_scroll - time.delta_secs()).max(0.);
+    for (entity, _) in &cursor_windows {
+        commands
+            .entity(entity)
+            .insert(bevy::window::CursorIcon::System(
+                if mouse.pressed(MouseButton::Right) {
+                    bevy::window::SystemCursorIcon::Crosshair
+                } else {
+                    bevy::window::SystemCursorIcon::Default
+                },
+            ));
+    }
     if let Some(cursor) = window.cursor_position() {
-        let blocked = game.hud && cursor.x < 296.;
+        let blocked = game.hud
+            && buttons.iter().any(|(_, node, transform)| {
+                transform.try_inverse().is_some_and(|inverse| {
+                    inverse
+                        .transform_point2(cursor * window.scale_factor())
+                        .abs()
+                        .cmple(node.size() * 0.5)
+                        .all()
+                })
+            });
         if !blocked && game.briefing && mouse.just_pressed(MouseButton::Left) {
             advance(&mut game);
         }
-        if !blocked && !game.briefing {
+        if !game.briefing {
             let mut pan = Vec3::ZERO;
             if cursor.x < 12. {
                 pan.x -= 1.;
@@ -659,12 +696,9 @@ fn input(
                 if let Some(d) = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y)) {
                     let p = ray.get_point(d);
                     let p = Point::new(p.x / SCALE, p.z / SCALE);
-                    if mouse.pressed(MouseButton::Right) && mouse.just_pressed(MouseButton::Left)
-                        || mouse.pressed(MouseButton::Left)
-                            && mouse.just_pressed(MouseButton::Right)
-                    {
+                    if explosive_press(&mouse) && !blocked {
                         game.queue.push(Command::Explosive(p));
-                    } else if mouse.just_pressed(MouseButton::Left) {
+                    } else if movement_press(&mouse, blocked) {
                         if let Some(id) = game
                             .battle
                             .units
@@ -677,17 +711,12 @@ fn input(
                             game.queue.push(Command::Move(p));
                         }
                     }
-                    game.queue.push(Command::Aim(
-                        if mouse.pressed(MouseButton::Right) && !mouse.pressed(MouseButton::Left) {
-                            Some(p)
-                        } else {
-                            None
-                        },
-                    ));
+                    game.queue.push(pointer_aim(&mouse, p));
                 }
             }
-        } else if blocked {
-            if mouse.just_pressed(MouseButton::Left) {
+        }
+        if blocked {
+            if movement_press(&mouse, false) {
                 let point = cursor * window.scale_factor();
                 for (entity, node, transform) in &buttons {
                     if let Some(inverse) = transform.try_inverse() {
@@ -699,7 +728,6 @@ fn input(
                     }
                 }
             }
-            game.queue.push(Command::Aim(None));
         }
     }
     if mouse.just_released(MouseButton::Right) {
@@ -722,7 +750,7 @@ fn input(
             let position = world(leader.pos);
             if let Ok(screen) = cam.world_to_viewport(gt, position) {
                 let left = if game.hud {
-                    296_f32.min(window.width() * 0.4)
+                    266_f32.min(window.width() * 0.4)
                 } else {
                     0.
                 };
@@ -968,7 +996,10 @@ fn unit_views(
             }
             _ => {
                 let tail = world(p.pos.toward(p.start, 6.)) + Vec3::Y * 0.7;
-                gizmos.line(a, tail, Color::srgb(1., 0.8, 0.25));
+                for offset in [-0.025, 0., 0.025] {
+                    let shift = Vec3::X * offset;
+                    gizmos.line(a + shift, tail + shift, Color::srgb(1., 0.85, 0.3));
+                }
             }
         }
     }
@@ -998,12 +1029,12 @@ fn unit_views(
                     Mesh3d(lib.sphere.clone()),
                     MeshMaterial3d(lib.fire.clone()),
                     Transform::from_translation(muzzle).with_scale(Vec3::splat(
-                        if weapon == Weapon::Rifle { 0.10 } else { 0.20 },
+                        if weapon == Weapon::Rifle { 0.18 } else { 0.28 },
                     )),
                     Particle {
                         velocity: Vec3::ZERO,
-                        remaining: 0.06,
-                        total: 0.06,
+                        remaining: 0.10,
+                        total: 0.10,
                     },
                 ));
                 continue;
@@ -1050,7 +1081,7 @@ fn unit_views(
                     lib.smoke.clone()
                 }),
                 Transform::from_translation(world(p) + Vec3::Y * 0.5)
-                    .with_scale(Vec3::splat(if explosion { 0.16 } else { 0.07 })),
+                    .with_scale(Vec3::splat(if explosion { 0.16 } else { 0.12 })),
                 Particle {
                     velocity: Vec3::new(a.cos() * speed, 1. + (i % 4) as f32, a.sin() * speed),
                     remaining: if explosion { 1.4 } else { 0.2 },
@@ -1538,5 +1569,76 @@ fn foliage_visibility(
             foliage.height
         };
         transform.scale.y += (target - transform.scale.y) * (1. - (-10. * time.delta_secs()).exp());
+    }
+}
+
+fn explosive_press(mouse: &ButtonInput<MouseButton>) -> bool {
+    mouse.pressed(MouseButton::Right) && mouse.just_pressed(MouseButton::Left)
+}
+
+#[cfg(test)]
+mod firing_input_tests {
+    use super::*;
+    #[test]
+    fn explosive_requires_fresh_left_press_while_right_is_held() {
+        let mut mouse = ButtonInput::default();
+        mouse.press(MouseButton::Right);
+        assert!(!explosive_press(&mouse));
+        mouse.clear();
+        mouse.press(MouseButton::Left);
+        assert!(explosive_press(&mouse));
+        assert!(!movement_press(&mouse, false));
+        assert!(!movement_press(&mouse, true));
+        mouse.clear();
+        assert!(!explosive_press(&mouse));
+        assert!(mouse.pressed(MouseButton::Right));
+        mouse.release(MouseButton::Left);
+        mouse.press(MouseButton::Left);
+        assert!(explosive_press(&mouse));
+    }
+    #[test]
+    fn pressing_right_after_left_does_not_launch() {
+        let mut mouse = ButtonInput::default();
+        mouse.press(MouseButton::Left);
+        mouse.clear();
+        mouse.press(MouseButton::Right);
+        assert!(!explosive_press(&mouse));
+    }
+}
+
+fn movement_press(mouse: &ButtonInput<MouseButton>, over_control: bool) -> bool {
+    mouse.just_pressed(MouseButton::Left) && !mouse.pressed(MouseButton::Right) && !over_control
+}
+
+// HUD hit-testing intentionally does not participate in continuous aiming.
+fn pointer_aim(mouse: &ButtonInput<MouseButton>, target: Point) -> Command {
+    Command::Aim(mouse.pressed(MouseButton::Right).then_some(target))
+}
+
+#[cfg(test)]
+mod continuous_fire_tests {
+    use super::*;
+    #[test]
+    fn aim_starts_on_press_survives_left_chord_and_stops_on_release() {
+        let mut mouse = ButtonInput::default();
+        let target = Point::new(20., 30.);
+        mouse.press(MouseButton::Right);
+        assert!(matches!(pointer_aim(&mouse, target), Command::Aim(Some(_))));
+        mouse.press(MouseButton::Left);
+        assert!(!movement_press(&mouse, false));
+        assert!(matches!(pointer_aim(&mouse, target), Command::Aim(Some(_))));
+        mouse.clear();
+        // Crossing a HUD control blocks commands but keeps the current aim.
+        assert!(!movement_press(&mouse, true));
+        assert!(matches!(pointer_aim(&mouse, target), Command::Aim(Some(_))));
+        mouse.release(MouseButton::Right);
+        assert!(matches!(pointer_aim(&mouse, target), Command::Aim(None)));
+    }
+    #[test]
+    fn ordinary_left_press_moves_only_outside_controls() {
+        let mut mouse = ButtonInput::default();
+        mouse.press(MouseButton::Left);
+        assert!(movement_press(&mouse, false));
+        assert!(!movement_press(&mouse, true));
     }
 }
