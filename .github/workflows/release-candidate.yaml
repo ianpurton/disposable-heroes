@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           wasm-bindgen --target web --out-dir dist --out-name disposable_heroes \
-            target/wasm32-unknown-unknown/release/disposable_heroes.wasm
+            target/wasm32-unknown-unknown/release/disposable-heroes.wasm
           # Only copy asset directories that exist; do not modify tracked files.
           if [[ -d assets ]]; then cp -a assets dist/assets; fi
           if [[ -d data ]]; then cp -a data dist/data; fi
