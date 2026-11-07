@@ -135,10 +135,10 @@ jobs:
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "Tag already exists: $TAG" >&2; exit 1
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "$TAG" -m "Release candidate $TAG"
-          git push origin "refs/tags/$TAG"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" \
+            -f "sha=$GITHUB_SHA"
           gh release create "$TAG" disposable-heroes-web.zip disposable-heroes-web.zip.sha256 \
             --repo "$GITHUB_REPOSITORY" --title "$TAG" --prerelease --generate-notes \
             --verify-tag

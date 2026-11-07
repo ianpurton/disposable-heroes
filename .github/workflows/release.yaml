@@ -62,11 +62,11 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           sha="$(git rev-parse "refs/tags/$RC^{commit}")"
-          git tag -a "$VERSION" "$sha" -m "Release $VERSION (promoted from $RC)"
-          git push origin "refs/tags/$VERSION"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$VERSION" \
+            -f "sha=$sha"
           gh release create "$VERSION" disposable-heroes-web.zip disposable-heroes-web.zip.sha256 \
             --repo "$GITHUB_REPOSITORY" --title "$VERSION" --latest --verify-tag \
             --notes "Promoted unchanged from $RC ($sha)."
