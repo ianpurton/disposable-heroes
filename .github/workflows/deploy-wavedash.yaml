@@ -1,0 +1,71 @@
+name: Deploy Wavedash
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable GitHub Release tag, e.g. v0.2.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: disposable-heroes-wavedash
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: wavedash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WAVEDASH_TOKEN: ${{ secrets.WAVEDASH_TOKEN }}
+      WAVEDASH_GAME_ID: ${{ vars.WAVEDASH_GAME_ID }}
+      WAVEDASH_UPLOAD_DIR: ./dist
+      WAVEDASH_ENTRYPOINT: index.html
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Verify version and configuration
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Stable version required'; exit 1; }
+          test -n "$WAVEDASH_TOKEN" || { echo 'Configure WAVEDASH_TOKEN secret'; exit 1; }
+          test -n "$WAVEDASH_GAME_ID" || { echo 'Configure WAVEDASH_GAME_ID variable'; exit 1; }
+          gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q '.isPrerelease' | grep -qx false
+
+      - name: Download exact stable release build
+        run: |
+          set -euo pipefail
+          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'disposable-heroes-web.zip*' --dir .
+          sha256sum --check disposable-heroes-web.zip.sha256
+          mkdir dist
+          unzip -q disposable-heroes-web.zip -d dist
+          test -s dist/index.html
+          test -s dist/disposable_heroes_bg.wasm
+
+      - name: Install Wavedash CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://wavedash.com/cli/install.sh -o /tmp/install-wavedash.sh
+          sh /tmp/install-wavedash.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.wavedash/bin" >> "$GITHUB_PATH"
+
+      - name: Upload and publish Wavedash build
+        run: |
+          set -euo pipefail
+          # Generated on the runner, never committed to the repository.
+          printf 'game_id = "%s"\nupload_dir = "./dist"\nentrypoint = "index.html"\n' \
+            "$WAVEDASH_GAME_ID" > wavedash.toml
+          wavedash build push -m "Disposable Heroes $VERSION" | tee /tmp/wavedash-upload.log
+          build_id="$(sed -nE 's/^.*Build ID:[[:space:]]*([^[:space:]]+).*$/\1/p' /tmp/wavedash-upload.log | tail -1)"
+          test -n "$build_id" || { echo 'Could not extract Wavedash build ID'; exit 1; }
+          wavedash publish "$build_id" --yes --title "Disposable Heroes $VERSION"
+          {
+            echo "### Wavedash deployment"
+            echo "Version: $VERSION"
+            echo "Wavedash build: $build_id"
+          } >> "$GITHUB_STEP_SUMMARY"

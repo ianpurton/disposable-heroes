@@ -1,0 +1,150 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: disposable-heroes-release
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Calculate semantic version and RC number
+        id: version
+        run: |
+          set -euo pipefail
+          git fetch --force --tags
+          python3 - <<'PYTHON'
+          import os, re, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          stable = []
+          prerelease = []
+          for tag in git('tag', '--list').splitlines():
+              if m := re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)', tag):
+                  stable.append((tuple(map(int, m.groups())), tag))
+              elif m := re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)-rc\.(\d+)', tag):
+                  prerelease.append((tuple(map(int, m.groups()[:3])), int(m.group(4)), tag))
+          # Stable versions must be ancestors of the selected main commit.
+          stable = [(v, t) for v, t in stable if subprocess.run(
+              ['git', 'merge-base', '--is-ancestor', t, 'HEAD']).returncode == 0]
+          base_version, base_tag = max(stable) if stable else ((0, 0, 0), None)
+          log = git('log', '--format=%s%n%b%x00', f'{base_tag}..HEAD' if base_tag else 'HEAD')
+          commits = [entry.strip() for entry in log.split('\x00') if entry.strip()]
+          breaking = any(re.search(r'(?m)^BREAKING CHANGE:', c) or
+                         re.match(r'^[a-z][a-z0-9-]*(?:\([^)]*\))?!:', c) for c in commits)
+          feature = any(re.match(r'^feat(?:\([^)]*\))?:', c) for c in commits)
+          fix = any(re.match(r'^fix(?:\([^)]*\))?:', c) for c in commits)
+          # Before the first stable release, start at v0.1.0.
+          if not base_tag:
+              target = (0, 1, 0)
+          elif breaking:
+              target = (base_version[0] + 1, 0, 0)
+          elif feature:
+              target = (base_version[0], base_version[1] + 1, 0)
+          else:
+              # Also allow manual candidates after non-conventional commits.
+              target = (base_version[0], base_version[1], base_version[2] + 1)
+          # Once the RC series starts, keep its version stable until promotion.
+          eligible = [(v, n, t) for v, n, t in prerelease if v > base_version]
+          if eligible:
+              target = max(eligible, key=lambda x: (x[0], x[1]))[0]
+          rc_num = 1 + max((n for v, n, _ in prerelease if v == target), default=0)
+          tag = f'v{target[0]}.{target[1]}.{target[2]}-rc.{rc_num}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'tag={tag}\n')
+          print(f'Candidate: {tag} (base: {base_tag or "none"})')
+          PYTHON
+
+      - name: Install Rust WASM target
+        run: |
+          rustup target add wasm32-unknown-unknown
+
+      - name: Compile WASM binary
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target wasm32-unknown-unknown -p disposable-heroes --bin disposable-heroes
+
+      - name: Install matching wasm-bindgen CLI
+        run: |
+          set -euo pipefail
+          # Match the wasm-bindgen library version selected by Cargo.lock.
+          version="$(cargo tree --locked -p disposable-heroes --target wasm32-unknown-unknown -i wasm-bindgen --prefix none | sed -n 's/^wasm-bindgen v\([0-9][0-9.]*\).*$/\1/p' | head -n 1)"
+          test -n "$version" || { echo 'Cannot find wasm-bindgen dependency'; exit 1; }
+          cargo install wasm-bindgen-cli --version "$version" --locked
+
+      - name: Package browser build
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          wasm-bindgen --target web --out-dir dist --out-name disposable_heroes \
+            target/wasm32-unknown-unknown/release/disposable_heroes.wasm
+          # Only copy asset directories that exist; do not modify tracked files.
+          if [[ -d assets ]]; then cp -a assets dist/assets; fi
+          if [[ -d data ]]; then cp -a data dist/data; fi
+          cat > dist/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>Disposable Heroes</title>
+            <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090e10}canvas{display:block}</style>
+          </head>
+          <body>
+            <script type="module">
+              import init from './disposable_heroes.js';
+              try {
+                await init();
+                // Wavedash injects its SDK into the hosting page.
+                if (window.Wavedash) window.Wavedash.init({debug: false});
+              } catch (error) {
+                console.error('Game failed to start:', error);
+                document.body.textContent = 'Unable to load Disposable Heroes.';
+              }
+            </script>
+          </body>
+          </html>
+          HTML
+          test -s dist/index.html
+          test -s dist/disposable_heroes.js
+          test -s dist/disposable_heroes_bg.wasm
+          (cd dist && zip -qr ../disposable-heroes-web.zip .)
+          sha256sum disposable-heroes-web.zip > disposable-heroes-web.zip.sha256
+
+      - name: Tag and publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag already exists: $TAG" >&2; exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "Release candidate $TAG"
+          git push origin "refs/tags/$TAG"
+          gh release create "$TAG" disposable-heroes-web.zip disposable-heroes-web.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title "$TAG" --prerelease --generate-notes \
+            --verify-tag
+          {
+            echo "### $TAG"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "SHA-256: $(cut -d' ' -f1 disposable-heroes-web.zip.sha256)"
+            echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          } >> "$GITHUB_STEP_SUMMARY"

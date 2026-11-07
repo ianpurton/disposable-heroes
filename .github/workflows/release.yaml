@@ -1,0 +1,78 @@
+name: Promote release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_candidate:
+        description: 'Existing RC tag, e.g. v0.2.0-rc.3'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: disposable-heroes-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate selected candidate
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC: ${{ inputs.release_candidate }}
+        run: |
+          set -euo pipefail
+          [[ "$RC" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || { echo 'Invalid RC tag'; exit 1; }
+          VERSION="${RC%-rc.*}"
+          gh release view "$RC" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q '.isPrerelease' | grep -qx true
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Stable release $VERSION already exists" >&2; exit 1
+          fi
+          git fetch --tags
+          git rev-parse --verify "refs/tags/$RC^{commit}" >/dev/null
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "Stable tag $VERSION already exists" >&2; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify original RC assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC: ${{ inputs.release_candidate }}
+        run: |
+          set -euo pipefail
+          gh release download "$RC" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'disposable-heroes-web.zip*' --dir .
+          test -s disposable-heroes-web.zip
+          test -s disposable-heroes-web.zip.sha256
+          sha256sum --check disposable-heroes-web.zip.sha256
+          unzip -tq disposable-heroes-web.zip
+
+      - name: Promote unchanged build to stable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC: ${{ inputs.release_candidate }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          sha="$(git rev-parse "refs/tags/$RC^{commit}")"
+          git tag -a "$VERSION" "$sha" -m "Release $VERSION (promoted from $RC)"
+          git push origin "refs/tags/$VERSION"
+          gh release create "$VERSION" disposable-heroes-web.zip disposable-heroes-web.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title "$VERSION" --latest --verify-tag \
+            --notes "Promoted unchanged from $RC ($sha)."
+          {
+            echo "### $VERSION"
+            echo "Promoted from: $RC"
+            echo "Commit: $sha"
+            echo "SHA-256: $(cut -d' ' -f1 disposable-heroes-web.zip.sha256)"
+          } >> "$GITHUB_STEP_SUMMARY"
