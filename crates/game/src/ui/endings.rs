@@ -1,13 +1,12 @@
 use super::*;
 pub(super) fn view(commands: &mut Commands, root: Entity, game: &Game, screen: &State<GameScreen>) {
-    let roster = game
+    let survivors: Vec<_> = game
         .campaign
         .roster
         .iter()
         .filter(|s| s.alive)
-        .map(|s| format!("{} {} · {} missions", s.rank(), s.name, s.missions))
-        .collect::<Vec<_>>()
-        .join("   ");
+        .cloned()
+        .collect();
 
     label(
         commands,
@@ -23,12 +22,14 @@ pub(super) fn view(commands: &mut Commands, root: Entity, game: &Game, screen: &
         commands,
         root,
         format!(
-            "Missions completed {} · Casualties {}\nHeroes: {roster}",
+            "Missions completed {} | Casualties {}",
             game.campaign.mission,
             game.campaign.memorial.len()
         ),
         22.,
     );
+    label(commands, root, "SURVIVING HEROES", 16.);
+    components::roster(commands, root, &survivors);
     button(commands, root, "Main Menu", Action::Menu);
     button(commands, root, "New Campaign", Action::New);
 }

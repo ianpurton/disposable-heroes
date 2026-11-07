@@ -22,7 +22,7 @@ pub(crate) fn objectives(game: &Game) -> String {
         })
         .count();
     let mut lines = vec![format!(
-        "M{} / P{} · {}",
+        "M{} / P{} | {}",
         progress.mission_index + 1,
         progress.phase_index + 1,
         game.titles[game.index]

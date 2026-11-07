@@ -6,14 +6,13 @@ pub(super) fn view(
     _screen: &State<GameScreen>,
 ) {
     let progress = game.campaign.progress;
-    let roster = game
+    let survivors: Vec<_> = game
         .campaign
         .roster
         .iter()
         .filter(|s| s.alive)
-        .map(|s| format!("{} {} · {} missions", s.rank(), s.name, s.missions))
-        .collect::<Vec<_>>()
-        .join("   ");
+        .cloned()
+        .collect();
 
     label(
         commands,
@@ -38,12 +37,13 @@ pub(super) fn view(
     if rules.1 {
         label(commands, root, "Destroy designated enemy buildings", 20.);
     }
-    label(commands, root, &roster, 18.);
+    label(commands, root, "AVAILABLE SOLDIERS", 16.);
+    components::roster(commands, root, &survivors);
     label(
         commands,
         root,
         format!(
-            "Grenades {} · Rockets {}",
+            "Grenades {} | Rockets {}",
             game.battle.grenades, game.battle.rockets
         ),
         18.,

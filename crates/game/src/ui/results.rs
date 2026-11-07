@@ -10,7 +10,7 @@ pub(super) fn view(
         commands,
         root,
         format!(
-            "Permanent casualties {} · Reserves {}",
+            "Permanent casualties {} | Reserves {}",
             game.campaign.memorial.len(),
             game.campaign.deployable()
         ),

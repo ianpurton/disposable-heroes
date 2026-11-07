@@ -10,7 +10,7 @@ pub(super) fn view(
     if Campaign::load(&game.save).is_ok() {
         button(commands, root, "Continue Campaign", Action::Continue);
     } else {
-        label(commands, root, "Continue Campaign — no save", 18.);
+        label(commands, root, "Continue Campaign - no save", 18.);
     }
     button(commands, root, "Options", Action::Options);
     button(commands, root, "Quit", Action::Quit);

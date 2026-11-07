@@ -5,14 +5,13 @@ pub(super) fn view(
     game: &Game,
     _screen: &State<GameScreen>,
 ) {
-    let roster = game
+    let survivors: Vec<_> = game
         .campaign
         .roster
         .iter()
         .filter(|s| s.alive)
-        .map(|s| format!("{} {} · {} missions", s.rank(), s.name, s.missions))
-        .collect::<Vec<_>>()
-        .join("   ");
+        .cloned()
+        .collect();
 
     label(commands, root, "SERVICE RECORD", 40.);
     label(
@@ -21,17 +20,13 @@ pub(super) fn view(
         &game.mission_titles[game.campaign.progress.mission_index],
         24.,
     );
-    label(
-        commands,
-        root,
-        format!("Survivors and updated ranks\n{roster}"),
-        18.,
-    );
+    label(commands, root, "SURVIVORS | UPDATED RANKS", 16.);
+    components::roster(commands, root, &survivors);
     label(
         commands,
         root,
         format!(
-            "Killed in action · {}\n{}",
+            "Killed in action | {}\n{}",
             game.campaign.memorial.len(),
             game.campaign
                 .memorial

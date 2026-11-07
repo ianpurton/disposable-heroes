@@ -255,21 +255,22 @@ fn draw(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 flex_direction: FlexDirection::Column,
-                row_gap: px(12),
                 padding: UiRect::all(px(24)),
                 ..default()
             },
             GlobalZIndex(100),
-            BackgroundColor(if result || *screen.get() == GameScreen::Recruitment {
-                Color::srgba(0., 0., 0., 0.28)
-            } else {
-                theme::PANEL
-            }),
+            BackgroundColor(Color::srgba(
+                0.01,
+                0.02,
+                0.015,
+                if result { 0.28 } else { 0.62 },
+            )),
         ))
         .id();
     if let Ok(camera) = cameras.single() {
         commands.entity(root).insert(UiTargetCamera(camera));
     }
+    let root = components::dialog(&mut commands, root, result);
     if flow.options {
         options::view(&mut commands, root, &settings);
         return;
