@@ -100,6 +100,8 @@ jobs:
           if [[ -d assets ]]; then cp -a assets dist/assets; fi
           mkdir -p dist/data
           cp -a data/. dist/data/
+          # Wavedash blocks .swp URLs; preserve bytes under a browser-safe name.
+          find dist/data -type f -name '*.swp' -exec mv -- '{}' '{}.bin' \;
           cat > dist/index.html <<'HTML'
           <!doctype html>
           <html lang="en">
@@ -151,8 +153,12 @@ jobs:
               raise SystemExit(f'Required maps missing from fixture manifest: {sorted(missing)}')
           # Verify every map, sprite, terrain and campaign file in the actual ZIP.
           with ZipFile('disposable-heroes-web.zip') as archive:
+              if unsafe := [name for name in archive.namelist() if name.endswith('.swp')]:
+                  raise SystemExit(f'Unsafe terrain filenames in ZIP: {unsafe}')
               for path, expected in files.items():
                   name = f'data/{path}'
+                  if path.endswith('.swp'):
+                      name += '.bin'
                   try:
                       raw = archive.read(name)
                   except KeyError:

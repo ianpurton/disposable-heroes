@@ -300,6 +300,44 @@ fn read(path: &Path) -> Result<Vec<u8>, ImportError> {
             )
         })
 }
+// Only the transport URL changes; importer paths and cache keys stay original.
+#[cfg(any(target_arch = "wasm32", test))]
+fn browser_resource_url(path: &str) -> String {
+    if path.ends_with(".swp") {
+        format!("{path}.bin")
+    } else {
+        path.into()
+    }
+}
+
+#[cfg(test)]
+mod browser_url_tests {
+    use super::browser_resource_url;
+
+    #[test]
+    fn fixture_requests_never_end_in_swp() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures-manifest.json")).unwrap();
+        let mut swap_files = 0;
+        for path in manifest["files"].as_object().unwrap().keys() {
+            let logical = format!("data/{path}");
+            let url = browser_resource_url(&logical);
+            assert!(!url.ends_with(".swp"), "Unsafe browser URL: {url}");
+            if path.ends_with(".swp") {
+                swap_files += 1;
+                assert_eq!(url, format!("{logical}.bin"));
+            } else {
+                assert_eq!(url, logical);
+            }
+        }
+        assert!(swap_files > 0);
+        assert_eq!(
+            browser_resource_url("data/Data/AmigaTheOne/junbase.swp.bin"),
+            "data/Data/AmigaTheOne/junbase.swp.bin"
+        );
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 async fn fetch(path: &str) -> Result<Vec<u8>, String> {
     use wasm_bindgen::JsCast;
@@ -307,15 +345,16 @@ async fn fetch(path: &str) -> Result<Vec<u8>, String> {
     if let Some(bytes) = BROWSER_FILES.with(|files| files.borrow().get(path).cloned()) {
         return Ok(bytes);
     }
+    let url = browser_resource_url(path);
     let window = web_sys::window().ok_or("No browser window")?;
-    let response = JsFuture::from(window.fetch_with_str(path))
+    let response = JsFuture::from(window.fetch_with_str(&url))
         .await
-        .map_err(|e| format!("GET {path}: {e:?}"))?;
+        .map_err(|e| format!("GET {url}: {e:?}"))?;
     let response: web_sys::Response = response
         .dyn_into()
         .map_err(|_| format!("Invalid response for {path}"))?;
     if !response.ok() {
-        return Err(format!("GET {path}: HTTP {}", response.status()));
+        return Err(format!("GET {url}: HTTP {}", response.status()));
     }
     let buffer = JsFuture::from(
         response
