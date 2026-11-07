@@ -9,8 +9,8 @@ description: Author, preview, validate and optionally export deterministic proce
   procedural ground texture. `crates/sound` is authoritative for synthesized PCM.
   `crates/game` consumes generated assets directly. Never introduce GLB, Blender,
   Python or generated files into the normal runtime or build dependency chain.
-- Model recipes live in `crates/models/src/library.rs`; shared geometry lives in
-  `geometry.rs`. Add public model names to `models::NAMES`. Generate with
+- Model recipes live in `crates/models/src/library/<model>.rs`; shared builder
+  helpers and dispatch live in `library.rs`, and shared geometry in `geometry.rs`. Add public model names to `models::NAMES`. Generate with
   `models::generate(name, GenerationOptions { seed })`, validate, then prepare
   handles once with `PreparedModel::new` and instantiate with `spawn`.
 - Coordinates in recipes retain the original X-right, Z-up, -Y-forward convention;
