@@ -87,15 +87,19 @@ jobs:
           test -n "$version" || { echo 'Cannot find wasm-bindgen dependency'; exit 1; }
           cargo install wasm-bindgen-cli --version "$version" --locked
 
+      - name: Fetch and verify required game data
+        run: python3 scripts/fetch_fixtures.py
+
       - name: Package browser build
         run: |
           set -euo pipefail
           mkdir -p dist
           wasm-bindgen --target web --out-dir dist --out-name disposable_heroes \
             target/wasm32-unknown-unknown/release/disposable-heroes.wasm
-          # Only copy asset directories that exist; do not modify tracked files.
+          # Game data is required; a missing directory must fail the release.
           if [[ -d assets ]]; then cp -a assets dist/assets; fi
-          if [[ -d data ]]; then cp -a data dist/data; fi
+          mkdir -p dist/data
+          cp -a data/. dist/data/
           cat > dist/index.html <<'HTML'
           <!doctype html>
           <html lang="en">
@@ -130,6 +134,33 @@ jobs:
           test -s dist/disposable_heroes.js
           test -s dist/disposable_heroes_bg.wasm
           (cd dist && zip -qr ../disposable-heroes-web.zip .)
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          files = json.loads(Path('tests/fixtures-manifest.json').read_text())['files']
+          required = {
+              'Data/AmigaTheOne/mapm1.map',
+              'Data/AmigaTheOne/mapm1.spt',
+              'Data/AmigaTheOne/mapm2.map',
+              'Data/AmigaAction/mapm3.map',
+          }
+          if missing := required - files.keys():
+              raise SystemExit(f'Required maps missing from fixture manifest: {sorted(missing)}')
+          # Verify every map, sprite, terrain and campaign file in the actual ZIP.
+          with ZipFile('disposable-heroes-web.zip') as archive:
+              for path, expected in files.items():
+                  name = f'data/{path}'
+                  try:
+                      raw = archive.read(name)
+                  except KeyError:
+                      raise SystemExit(f'Required game data missing from ZIP: {name}')
+                  if not raw or hashlib.sha256(raw).hexdigest() != expected:
+                      raise SystemExit(f'Invalid game data in ZIP: {name}')
+          print(f'Verified {len(files)} required game data files in release ZIP')
+          PYTHON
           sha256sum disposable-heroes-web.zip > disposable-heroes-web.zip.sha256
 
       - name: Tag and publish GitHub prerelease

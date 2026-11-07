@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_candidate:
-        description: 'Existing RC tag, e.g. v0.2.0-rc.3'
-        required: true
+        description: 'RC tag (blank = latest RC)'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -29,23 +30,40 @@ jobs:
           RC: ${{ inputs.release_candidate }}
         run: |
           set -euo pipefail
-          [[ "$RC" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || { echo 'Invalid RC tag'; exit 1; }
+          git fetch --tags
+          if [[ -z "$RC" ]]; then
+            # An empty match (1) or head closing the pipe early (141) is expected.
+            RC="$(git tag -l 'v*-rc.*' --sort=-v:refname |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' |
+              head -n 1)" || {
+              status=$?
+              if [[ "$status" != 1 && "$status" != 141 ]]; then exit "$status"; fi
+            }
+            [[ -n "$RC" ]] || { echo 'No RC tag exists to promote' >&2; exit 1; }
+          fi
+          [[ "$RC" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo "Invalid RC tag: $RC" >&2; exit 1; }
           VERSION="${RC%-rc.*}"
-          gh release view "$RC" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q '.isPrerelease' | grep -qx true
+          if ! gh release view "$RC" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q '.isPrerelease' | grep -qx true; then
+            echo "Selected RC $RC must have an existing GitHub prerelease" >&2; exit 1
+          fi
           if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Stable release $VERSION already exists" >&2; exit 1
           fi
-          git fetch --tags
           git rev-parse --verify "refs/tags/$RC^{commit}" >/dev/null
           if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
             echo "Stable tag $VERSION already exists" >&2; exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "rc=$RC" >> "$GITHUB_OUTPUT"
+          {
+            echo "Selected RC: $RC"
+            echo "Stable version: $VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Download and verify original RC assets
         env:
           GH_TOKEN: ${{ github.token }}
-          RC: ${{ inputs.release_candidate }}
+          RC: ${{ steps.version.outputs.rc }}
         run: |
           set -euo pipefail
           gh release download "$RC" --repo "$GITHUB_REPOSITORY" \
@@ -58,7 +76,7 @@ jobs:
       - name: Promote unchanged build to stable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RC: ${{ inputs.release_candidate }}
+          RC: ${{ steps.version.outputs.rc }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
