@@ -1,4 +1,4 @@
-name: Promote release candidate
+name: Release
 
 on:
   workflow_dispatch:
