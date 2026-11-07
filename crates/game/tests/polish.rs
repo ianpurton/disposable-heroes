@@ -134,10 +134,11 @@ fn visibility_and_ai_do_not_fire_through_walls() {
 #[test]
 fn enemies_react_then_fire_and_remember_briefly() {
     let mut b = Battle::new(arena(), 7);
+    b.tuning.rifle_speed = 1.;
     b.tick(0.02);
     assert_eq!(b.units[1].ai, AiState::Reacting);
     assert!(b.projectiles.is_empty());
-    for _ in 0..40 {
+    for _ in 0..70 {
         b.tick(0.02);
     }
     assert!(b.effects.iter().any(|e| matches!(
@@ -152,6 +153,7 @@ fn enemies_react_then_fire_and_remember_briefly() {
     }
     b.navigation = Navigation::build(&b.map, &[]);
     b.projectiles.clear();
+    b.tuning.detection_range = 0.;
     b.tick(0.02);
     assert_eq!(b.units[1].ai, AiState::Searching);
     assert!(!b.units[1].fire);
@@ -237,4 +239,103 @@ fn original_squad_can_route_from_spawn_around_the_jungle() {
         "follower failed to arrive: {:?}",
         battle.units[1].pos
     );
+}
+
+#[test]
+fn idle_patrols_pause_and_stay_local_deterministically() {
+    let mut a = Battle::new(arena(), 1993);
+    a.tuning.detection_range = 0.;
+    let mut b = a.clone();
+    let home = a.units[1].pos;
+    let mut moving = 0;
+    let mut paused = 0;
+    for _ in 0..600 {
+        a.tick(0.02);
+        b.tick(0.02);
+        let u = &a.units[1];
+        assert_eq!(u.pos, b.units[1].pos);
+        assert!(u.pos.distance(home) < 50.);
+        if u.pos == u.previous {
+            paused += 1;
+        } else {
+            moving += 1;
+        }
+    }
+    assert!(moving > 20 && paused > 20);
+}
+#[test]
+fn attack_timers_preserve_individual_aggression_and_pauses() {
+    let t = CombatTuning::default();
+    assert_eq!(
+        (0..5)
+            .map(|i| t.individual_aggression(i))
+            .collect::<Vec<_>>(),
+        vec![2, 3, 4, 3, 2]
+    );
+    for r in 0..256 {
+        assert!(t.attack_delay(4, r) < t.attack_delay(2, r));
+    }
+    let mut b = Battle::new(arena(), 7);
+    let mut firing = 0;
+    for _ in 0..100 {
+        b.tick(0.02);
+        firing += usize::from(b.units[1].fire);
+    }
+    assert!(firing > 0 && firing < 5);
+}
+
+#[test]
+fn original_records_are_preserved_byte_for_byte() {
+    let m = original();
+    let root = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/Data/AmigaTheOne"
+    ));
+    let raw = std::fs::read(root.join("mapm1.map")).unwrap();
+    let tiles: Vec<u8> = m.tiles.iter().flat_map(|v| v.to_be_bytes()).collect();
+    assert_eq!(tiles, raw[96..96 + tiles.len()]);
+    let sprites: Vec<u8> = m
+        .sprites
+        .iter()
+        .flat_map(|s| {
+            [
+                s.direction,
+                s.reserved,
+                s.stored_x as u16,
+                s.y as u16,
+                s.kind,
+            ]
+            .into_iter()
+            .flat_map(u16::to_be_bytes)
+        })
+        .collect();
+    assert_eq!(sprites, std::fs::read(root.join("mapm1.spt")).unwrap());
+}
+
+#[test]
+fn first_mission_objectives_match_pinned_campaign() {
+    let definition: disposable_heroes::campaign::CampaignDefinition =
+        serde_json::from_slice(include_bytes!("../../../data/Campaigns/Amiga The One.ofc"))
+            .unwrap();
+    let phase = &definition.missions[0].phases[0];
+    assert_eq!(phase.aggression, vec![2, 4]);
+    assert_eq!(
+        phase.objectives,
+        vec!["KILL ALL ENEMY", "DESTROY ALL BUILDINGS"]
+    );
+    let b = Battle::new(original(), 1993);
+    assert!(b.kill_objective && b.destroy_objective);
+}
+#[test]
+fn aiming_and_releasing_preserve_movement_orders() {
+    let mut b = Battle::new(arena(), 7);
+    b.command(Command::Move(Point::new(40., 20.)));
+    let target = b.units[0].target;
+    let path = b.units[0].path.clone();
+    for aim in [Some(Point::new(70., 50.)), Some(Point::new(90., 80.)), None] {
+        b.command(Command::Aim(aim));
+        assert_eq!(b.units[0].target, target);
+        assert_eq!(b.units[0].path, path);
+        assert_eq!(b.units[0].fire, aim.is_some());
+    }
 }

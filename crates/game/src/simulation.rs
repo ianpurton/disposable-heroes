@@ -58,6 +58,8 @@ pub struct Unit {
     pub follow: Option<u32>,
     pub slot: usize,
     pub ai: AiState,
+    pub home: Point,
+    pub aggression: u8,
     pub acquired: Option<u32>,
     pub reaction: f32,
     pub last_seen: Option<Point>,
@@ -171,6 +173,8 @@ impl Battle {
                     follow: None,
                     slot: 0,
                     ai: AiState::Idle,
+                    home: p,
+                    aggression: 255,
                     acquired: None,
                     reaction: 0.,
                     last_seen: None,
@@ -400,6 +404,7 @@ impl Battle {
             Weapon::Grenade => self.tuning.grenade_range,
             Weapon::Rocket => self.tuning.rocket_range,
         };
+        let start = start.toward(target, 5.2);
         let end = start.toward(target, range);
         let distance = start.distance(end);
         self.projectiles.push(Projectile {
@@ -444,6 +449,12 @@ impl Battle {
             .filter(|u| u.alive && !u.enemy)
             .map(|u| (u.id, u.pos, u.target, u.history.clone()))
             .collect::<Vec<_>>();
+        let mut ai_seed = self.seed;
+        let mut random = || {
+            ai_seed = ai_seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (ai_seed >> 32) as u32
+        };
+        let mut enemy_index = 0;
         for u in &mut self.units {
             u.previous = u.pos;
             if !u.alive {
@@ -458,6 +469,10 @@ impl Battle {
                 }
             }
             if u.enemy {
+                if u.aggression == 255 {
+                    u.aggression = self.tuning.individual_aggression(enemy_index);
+                }
+                enemy_index += 1;
                 let visible = live
                     .iter()
                     .filter(|(_, p, enemy)| {
@@ -469,7 +484,8 @@ impl Battle {
                 if let Some((id, point, _)) = visible {
                     if u.acquired != Some(*id) {
                         u.acquired = Some(*id);
-                        u.reaction = self.tuning.reaction_seconds;
+                        u.reaction = self.tuning.attack_delay(u.aggression, random())
+                            * (self.tuning.reaction_seconds / 0.685);
                     }
                     u.reaction = (u.reaction - dt).max(0.);
                     u.last_seen = Some(*point);
@@ -480,17 +496,21 @@ impl Battle {
                     } else {
                         AiState::Engaging
                     };
-                    u.fire = u.reaction <= 0. && u.pos.distance(*point) < self.tuning.rifle_range;
-                    if u.fire || u.reaction > 0. {
-                        u.path.clear();
-                        u.target = u.pos;
-                    } else if u.repath <= 0. {
-                        u.path = self
-                            .navigation
-                            .route(u.pos, *point)
-                            .unwrap_or_default()
-                            .into();
-                        u.repath = 0.5;
+                    u.fire = u.reaction <= 0.
+                        && u.cooldown <= 0.
+                        && u.pos.distance(*point) < self.tuning.rifle_range;
+                    if u.reaction <= 0. && u.repath <= 0. && !u.fire {
+                        let angle = (random() % 256) as f32 * std::f32::consts::TAU / 256.;
+                        let destination =
+                            Point::new(point.x + angle.cos() * 40., point.y + angle.sin() * 40.);
+                        if destination.distance(u.home) < 200. {
+                            u.path = self
+                                .navigation
+                                .route(u.pos, destination)
+                                .unwrap_or_default()
+                                .into();
+                        }
+                        u.repath = 0.5 + (random() % 50) as f32 / 50.;
                     }
                 } else {
                     u.fire = false;
@@ -506,7 +526,25 @@ impl Battle {
                         }
                     } else {
                         u.ai = AiState::Idle;
-                        u.path.clear();
+                        if u.repath <= 0. {
+                            u.path.clear();
+                            // Alternate pauses and local reachable destinations; never drift from home.
+                            if random() & 3 != 0 {
+                                let angle = (random() % 256) as f32 * std::f32::consts::TAU / 256.;
+                                let radius = 12. + (random() % 37) as f32;
+                                let p = Point::new(
+                                    u.home.x + angle.cos() * radius,
+                                    u.home.y + angle.sin() * radius,
+                                );
+                                if self.map.terrain_at(p.x, p.y)
+                                    == self.map.terrain_at(u.home.x, u.home.y)
+                                {
+                                    u.path =
+                                        self.navigation.route(u.pos, p).unwrap_or_default().into();
+                                }
+                            }
+                            u.repath = 0.6 + (random() % 100) as f32 / 50.;
+                        }
                     }
                 }
             } else if let Some(id) = u.follow {
@@ -552,7 +590,7 @@ impl Battle {
                     if u.rocket {
                         1.7
                     } else {
-                        self.tuning.enemy_cooldown
+                        self.tuning.attack_delay(u.aggression, random())
                     }
                 } else {
                     self.tuning.player_cooldown
@@ -591,6 +629,7 @@ impl Battle {
                 }
             }
         }
+        self.seed = ai_seed;
         for (start, mut target, enemy, weapon) in shots {
             if enemy {
                 target.x += (self.random() - 0.5) * self.tuning.aim_error;
@@ -708,6 +747,8 @@ impl Battle {
                     follow: None,
                     slot: 0,
                     ai: AiState::Idle,
+                    home: p,
+                    aggression: 255,
                     acquired: None,
                     reaction: 0.,
                     last_seen: None,

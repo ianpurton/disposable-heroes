@@ -504,7 +504,7 @@ fn spawn_level(
                 let width = (patch.width - x as f32).min(4.);
                 let depth = (patch.depth - y as f32).min(4.);
                 let extent = width.min(depth);
-                let scale = extent * SCALE * (0.50 + (hash % 101) as f32 * 0.0015);
+                let scale = extent * SCALE * (0.90 + (hash % 41) as f32 * 0.001);
                 let center = world(Point::new(
                     gx as f32
                         + width * 0.5
@@ -526,9 +526,7 @@ fn spawn_level(
                 );
                 commands.entity(id).insert((
                     Foliage { height: scale },
-                    Transform::from_translation(center)
-                        .with_rotation(Quat::from_rotation_y((hash % 628) as f32 * 0.01))
-                        .with_scale(Vec3::splat(scale)),
+                    Transform::from_translation(center).with_scale(Vec3::splat(scale)),
                 ));
             }
         }
@@ -544,13 +542,13 @@ fn spawn_level(
             {
                 continue;
             }
-            let name = if hash % 17 == 0 { "bush" } else { "grass" };
+            let name = "grass";
             model(
                 commands,
                 lib,
                 name,
                 world(p),
-                0.6 + (hash % 7) as f32 * 0.08,
+                0.25 + (hash % 7) as f32 * 0.02,
             );
         }
     }
@@ -734,7 +732,11 @@ fn input(
         game.queue.push(Command::Aim(None));
     }
     // Track the active living leader inside the usable viewport, clear of the HUD.
-    if !game.briefing && game.battle.outcome == Outcome::Playing && rig.manual_scroll <= 0. {
+    if !game.briefing
+        && game.battle.outcome == Outcome::Playing
+        && rig.manual_scroll <= 0.
+        && !mouse.pressed(MouseButton::Right)
+    {
         let leader = game
             .battle
             .units
@@ -1017,9 +1019,8 @@ fn unit_views(
             } => {
                 debug!("Shot effect: {:?}", weapon);
                 shot_sound = true;
-                let muzzle = world(origin)
-                    + Vec3::Y * 0.8
-                    + (world(direction) - world(origin)).normalize_or_zero() * 0.65;
+                let muzzle = world(origin) + Vec3::Y * 0.7;
+                let _ = direction;
                 if particle_budget == 0 {
                     continue;
                 }
@@ -1547,28 +1548,19 @@ fn benchmark(
 }
 fn foliage_visibility(
     game: Res<Game>,
-    time: Res<Time>,
-    mut foliage: Query<(&Foliage, &mut Transform)>,
+    mut foliage: Query<(&Foliage, &mut Transform, &mut Visibility)>,
 ) {
-    let leaders = game
-        .battle
-        .units
-        .iter()
-        .filter(|u| game.battle.selected_unit(u))
-        .map(|u| world(u.pos))
-        .collect::<Vec<_>>();
-    for (foliage, mut transform) in &mut foliage {
-        let p = transform.translation;
-        let nearby = leaders.iter().any(|u| {
-            let d = p - *u;
-            d.x.abs() < transform.scale.x * 0.6 + 0.7 && d.z > -2. && d.z < 3.
-        });
-        let target = if nearby {
-            foliage.height.min(0.16)
-        } else {
-            foliage.height
-        };
-        transform.scale.y += (target - transform.scale.y) * (1. - (-10. * time.delta_secs()).exp());
+    for (foliage, mut transform, mut visibility) in &mut foliage {
+        let nearby = game
+            .battle
+            .units
+            .iter()
+            .filter(|u| game.battle.selected_unit(u))
+            .any(|u| {
+                let d = transform.translation - world(u.pos);
+                d.x.abs() < foliage.height * 0.6 + 0.7 && d.z > -2. && d.z < 3.
+            });
+        apply_foliage_visibility(&mut transform, &mut visibility, foliage.height, nearby);
     }
 }
 
@@ -1640,5 +1632,34 @@ mod continuous_fire_tests {
         mouse.press(MouseButton::Left);
         assert!(movement_press(&mouse, false));
         assert!(!movement_press(&mouse, true));
+    }
+}
+
+fn apply_foliage_visibility(
+    transform: &mut Transform,
+    visibility: &mut Visibility,
+    scale: f32,
+    nearby: bool,
+) {
+    transform.scale = Vec3::splat(scale);
+    *visibility = if nearby {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+}
+#[cfg(test)]
+mod foliage_tests {
+    use super::*;
+    #[test]
+    fn proximity_preserves_uniform_scale_and_ground_anchor() {
+        let mut transform = Transform::from_xyz(3., 0., 7.);
+        let mut visibility = Visibility::Inherited;
+        for nearby in [false, true, true, false] {
+            apply_foliage_visibility(&mut transform, &mut visibility, 0.8, nearby);
+            assert_eq!(transform.scale, Vec3::splat(0.8));
+            assert_eq!(transform.translation, Vec3::new(3., 0., 7.));
+            assert_eq!(visibility == Visibility::Hidden, nearby);
+        }
     }
 }
