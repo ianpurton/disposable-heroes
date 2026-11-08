@@ -5,13 +5,13 @@ on:
       - '.agents/**'
       - README.md
       - AGENTS.md
-      - screenshot.png
+      - '.github/assets/**'
   pull_request:
     paths-ignore:
       - '.agents/**'
       - README.md
       - AGENTS.md
-      - screenshot.png
+      - '.github/assets/**'
 jobs:
   linux:
     runs-on: ubuntu-latest

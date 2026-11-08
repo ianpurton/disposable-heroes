@@ -2,7 +2,7 @@
 
 A Rust / Bevy 0.20 jungle squad-combat project inspired by Cannon Fodder. Native OpenFodder map import, Rust-generated models and audio, fixed-step combat, named soldiers and mission retry.
 
-![Disposable Heroes gameplay screenshot](screenshot.png)
+![Disposable Heroes gameplay screenshot](.github/assets/disposable-heroes.png)
 
 ## Layout
 
