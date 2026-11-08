@@ -1,6 +1,6 @@
 ---
 name: 3d-assets
-description: Author, preview, validate and optionally export deterministic procedural Bevy models and sounds in Rust.
+description: Author, preview, validate and optionally export deterministic procedural Bevy models and sounds in Rust, or assemble exported GLBs into a Blender inspection file.
 ---
 
 # Procedural assets
@@ -43,3 +43,33 @@ description: Author, preview, validate and optionally export deterministic proce
 - Keep geometry/sound algorithms and recipe parameters readable Rust. Add narrow
   helpers for repeated construction; avoid generic authoring frameworks or baked
   vertex dumps. Tests should check contracts and behavior, not mirror recipes.
+
+## Blender inspection export
+
+Use the bundled [scripts/blender_assets.py](scripts/blender_assets.py) when the
+user wants a `.blend` file for inspecting exported models. It is independent of
+the game, Rust and Just: it reads any directory of `.glb` files using Blender's
+bundled Python. Requires Blender with its glTF importer (verified with 5.2.3).
+
+Resolve the script path relative to this skill's location. From any project or
+working directory, run (replace the example paths):
+
+```sh
+blender --background --factory-startup --python-exit-code 1 \
+  --python /path/to/3d-assets/scripts/blender_assets.py -- \
+  --input /path/to/glbs --output /path/to/asset-library.blend
+```
+
+The helper imports every top-level `.glb`, creates a named collection per file,
+spaces models in a grid at their original sizes, retains imported materials,
+rigs and animation clips, and saves a framed inspection viewport. It creates a
+new scene rather than editing an existing `.blend`; the output path is replaced
+if it already exists. Empty inputs or failed imports exit nonzero. Reopen the
+saved file to check the expected model collections and any rigs/clips.
+
+In this repository, `just assets-blend [output] [seed]` exports the Rust library
+into a temporary GLB directory, calls this helper, then cleans up the temporary
+files. Defaults are `tmp/asset-library.blend` and seed `1993`. In another project,
+use that project's exporter or existing GLBs and call the helper directly; the
+repository-specific Rust layout and recipes above are not helper dependencies.
+Keep Blender export optional and outside normal game builds.

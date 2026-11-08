@@ -2,11 +2,13 @@ name: Build and validate
 on:
   push:
     paths-ignore:
+      - '.agents/**'
       - README.md
       - AGENTS.md
       - screenshot.png
   pull_request:
     paths-ignore:
+      - '.agents/**'
       - README.md
       - AGENTS.md
       - screenshot.png

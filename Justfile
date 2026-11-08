@@ -26,3 +26,14 @@ assets-validate:
 # Optional interoperability output. Never used by the game or gallery.
 assets-export model="" seed="1993" output="tmp/glb":
     cargo run -p disposable-heroes --features asset-export --bin asset-export -- --seed {{seed}} --output {{quote(output)}} {{if model == "" { "" } else { "--model " + quote(model) }}}
+
+# Optional Blender scene containing the full model library, with rigs and clips.
+assets-blend output="tmp/asset-library.blend" seed="1993":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v blender >/dev/null || { echo 'Blender is required for assets-blend' >&2; exit 1; }
+    mkdir -p tmp
+    export_dir=$(mktemp -d tmp/blend-export.XXXXXX)
+    trap 'rm -rf -- "$export_dir"' EXIT
+    just assets-export "" {{quote(seed)}} "$export_dir"
+    blender --background --factory-startup --python-exit-code 1 --python .agents/skills/3d-assets/scripts/blender_assets.py -- --input "$export_dir" --output {{quote(output)}}

@@ -26,6 +26,7 @@ Selected files and directories; comments describe their architectural role.
 │   └── ps1.bash                   # Shell prompt
 ├── .cargo/config.toml             # Default target: x86_64-unknown-linux-gnu
 ├── .agents/skills/                # Bevy guidance and procedural asset authoring skill
+│   └── 3d-assets/scripts/         # Reusable GLB-to-Blender inspection helper
 ├── Cargo.toml                     # Three-crate workspace; game is default member
 ├── Cargo.lock                     # Pinned Rust dependency versions
 ├── Justfile                       # Build, play and asset tasks (see below)
@@ -111,12 +112,20 @@ Optional positional arguments are shown in brackets, in recipe order.
 | `just assets-preview [model] [seed]` | Interactive library or selected model; seed defaults to `1993`. |
 | `just assets-capture [output] [seed] [clip] [time]` | Offscreen contact sheet; defaults to `tmp/asset-library.png`, seed `1993`, no clip. With a clip, freeze at time (default `0.5` seconds). |
 | `just assets-export [model] [seed] [output]` | Export one/all models as GLBs; defaults to seed `1993`, output `tmp/glb/`. |
+| `just assets-blend [output] [seed]` | Export all models and import into headless Blender; defaults to `tmp/asset-library.blend`, seed `1993`. Requires Blender. |
 | `just assets-validate` | Workspace tests with export support, then WASM compatibility checks; requires the `wasm32-unknown-unknown` target. |
 
 For example, `just assets-capture tmp/run.png 1993 Run 0.5` captures an animation
 pose. The gallery binary also accepts `--model`, `--seed`, `--clip` (continuous
 playback), `--time` (freeze a pose) and `--output` (capture and exit).
 See the [procedural asset authoring guide](.agents/skills/3d-assets/SKILL.md).
+
+To inspect the full library in Blender, run `just assets-blend`, then open
+`tmp/asset-library.blend`. Models are spaced in a grid at their original sizes,
+with a named collection per asset and imported rigs and animation clips retained.
+The saved viewport frames the library; select a model and press numpad `.` to
+focus it. This optional export uses temporary GLBs and Blender's bundled Python;
+it is separate from the game build and does not change the Rust asset sources.
 
 ### Game options
 
