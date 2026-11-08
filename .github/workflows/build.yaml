@@ -1,5 +1,15 @@
 name: Build and validate
-on: [push, pull_request]
+on:
+  push:
+    paths-ignore:
+      - README.md
+      - AGENTS.md
+      - screenshot.png
+  pull_request:
+    paths-ignore:
+      - README.md
+      - AGENTS.md
+      - screenshot.png
 jobs:
   linux:
     runs-on: ubuntu-latest

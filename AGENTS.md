@@ -2,11 +2,9 @@
 
 You are running in a Linux devcontainer set up for Bevy development with GPU access.
 
-Build the game for `x86_64-unknown-linux-gnu`, matching the user's Linux host.
-
-The user runs the game on the Linux host for interactive playtesting.
-
-Installed tools: Rust, Blender, Vulkan.
+Read [README Layout](README.md#layout) for repository architecture and asset ownership,
+and [Run](README.md#run), [Tasks](README.md#tasks) and
+[Validation](README.md#validation) for target, commands and playtesting guidance.
 
 ## Visual test output
 
@@ -33,10 +31,7 @@ on the Linux host; container rendering checks need a headless or virtual display
 
 ## Procedural model pipeline
 
-Rust definitions in `crates/models/` and `crates/sound/` are authoritative.
-The game lives in `crates/game/`; run commands from the workspace root.
 Use the repository-local `3d-assets` skill for models, sounds and asset tooling.
-`just assets-build`, `just assets-preview`, `just assets-capture`, and
-`just assets-validate` build, inspect and validate the direct Bevy pipeline.
-`just assets-export [model]` optionally writes interoperability GLBs to `tmp/glb/`.
+See [README Layout](README.md#layout) for authoritative asset sources and
+[Tasks](README.md#tasks) for the shared game/gallery/export pipeline.
 Do not use exported GLBs as source or introduce a Blender/Python build dependency.

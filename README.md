@@ -4,79 +4,178 @@ A Rust / Bevy 0.20 jungle squad-combat project inspired by Cannon Fodder. Native
 
 ![Disposable Heroes gameplay screenshot](screenshot.png)
 
-## Linux host
+## Layout
 
-Run from the repository root. The binary targets `x86_64-unknown-linux-gnu`. Use `just build` (or plain `just`) to rebuild the game, and `just play` to build and launch it with your saved campaign. `just play --fresh` starts a new campaign. Asset gallery commands build the gallery separately.
+Selected files and directories; comments describe their architectural role.
+
+```text
+.
+├── .github/workflows/             # CI, semantic versioning and release delivery
+│   ├── build.yaml                 # Test, check WASM compatibility and build Linux
+│   ├── release-candidate.yaml     # Calculate semantic version; package web prerelease
+│   ├── release.yaml               # Promote an unchanged candidate to stable
+│   └── deploy-wavedash.yaml       # Upload stable web release; optionally publish
+├── .devcontainer/                 # Version-controlled developer environment
+│   ├── devcontainer.json          # Workspace, service and initialization settings
+│   ├── devcontainer-lock.json     # Locked devcontainer feature versions
+│   ├── Dockerfile                 # Rust/Bevy tools, Linux libraries, Vulkan and Blender
+│   ├── compose.yaml               # Workspace mounts, GPU passthrough and service
+│   ├── initialize-gpu.sh          # Generate host-specific render-group configuration
+│   ├── rebuild.sh                 # Remove this container for a fresh rebuild
+│   ├── bash_aliases               # Developer shell shortcuts
+│   └── ps1.bash                   # Shell prompt
+├── .cargo/config.toml             # Default target: x86_64-unknown-linux-gnu
+├── .agents/skills/                # Bevy guidance and procedural asset authoring skill
+├── Cargo.toml                     # Three-crate workspace; game is default member
+├── Cargo.lock                     # Pinned Rust dependency versions
+├── Justfile                       # Build, play and asset tasks (see below)
+├── crates/
+│   ├── seed.rs                    # Deterministic randomness shared by models and sound
+│   ├── game/                      # disposable-heroes package
+│   │   ├── src/
+│   │   │   ├── main.rs            # CLI, map/campaign setup and Bevy app composition
+│   │   │   ├── lib.rs             # Reusable logic exposed to binaries and tests
+│   │   │   ├── importer.rs        # Native map/sprite/terrain data; browser map loading
+│   │   │   ├── simulation.rs      # Renderer-independent battlefield and combat
+│   │   │   ├── navigation.rs      # Deterministic routing on original collision grid
+│   │   │   ├── tuning.rs          # Gameplay values and campaign aggression tuning
+│   │   │   ├── campaign.rs        # Roster, progress, checkpoints and save format
+│   │   │   ├── storage.rs         # Native file / browser localStorage persistence
+│   │   │   ├── environment.rs     # Reviewed tile visuals and thicket placement
+│   │   │   ├── game_flow.rs       # Screen states and mission lifecycle
+│   │   │   ├── presentation.rs    # Battlefield rendering, input, camera, audio and effects
+│   │   │   ├── ui/                # Menus, briefing, HUD, results and shared theme
+│   │   │   └── bin/
+│   │   │       ├── map-inspect.rs # Inspect original map data without rendering
+│   │   │       ├── asset-gallery.rs # Preview or capture procedural models
+│   │   │       └── asset-export.rs  # Optional GLB interoperability export
+│   │   └── tests/                 # Import, simulation, campaign and screen lifecycle checks
+│   ├── models/                    # Authoritative procedural geometry, materials and animation
+│   │   ├── src/library/           # Individual model definitions
+│   │   ├── src/geometry.rs        # Shared mesh construction helpers
+│   │   ├── src/export.rs          # Optional GLB serialization
+│   │   └── tests/                 # Model contracts and export validation
+│   └── sound/src/lib.rs           # Authoritative synthesized rifle, explosion and jungle audio
+├── assets/
+│   ├── catalogs/jungle.json       # Reviewed original tile-to-visual mappings
+│   └── shaders/water.wesl         # Water material shader
+├── scripts/
+│   ├── fetch_fixtures.py          # Download and checksum pinned OpenFodder data
+│   ├── reference_tiles.py         # Decode reference tiles for visual review
+│   └── check_input.sh             # Script native input smoke checks
+├── tests/fixtures-manifest.json   # Upstream data revision and SHA-256 checksums
+├── docs/
+│   ├── format.md                  # Import formats and supported source data
+│   ├── first-mission.md           # Visual reference and host acceptance checks
+│   └── status.md                  # Implementation limits and remaining work
+├── AGENTS.md                      # Agent-specific development and validation instructions
+├── data/                          # Ignored: downloaded original map fixtures
+├── saves/                         # Ignored: native campaign persistence
+└── tmp/                           # Ignored: screenshots, benchmarks and optional exports
+```
+
+The importer feeds original map geometry, sprites and collision data into the
+renderer-independent simulation. Bevy drives combat at 50 fixed steps per second;
+presentation and UI translate player actions into commands and display battle
+state. Campaign logic carries soldiers and progress between missions, with native
+file or browser storage. Models and sound are generated directly in memory from
+Rust definitions; the game and asset tools share that construction path. Exported
+GLBs are optional interoperability outputs and are never game inputs.
+
+## Run
+
+Run commands from the repository root. The native target is
+`x86_64-unknown-linux-gnu`; interactive playtesting happens on the Linux host.
+The devcontainer supplies Rust, Vulkan, Blender and Linux development libraries.
+Python is needed for fixture downloads and reference tools; building and running
+with fixtures already present requires no Python, Blender or generated GLBs/WAVs.
 
 ```sh
 python3 scripts/fetch_fixtures.py
 just play --fresh
 ```
 
-The workspace contains `crates/game` (the `disposable-heroes` package),
-`crates/models` and `crates/sound`. Run commands from the repository root; the
-workspace defaults to the game package. Models, materials, rigs, animations,
-ground texture and audio are generated directly in memory. Building and running
-requires neither Python nor Blender nor generated GLBs/WAVs. Python is used only
-for the separate original-map fixture download and reference tools.
+`just play` resumes the saved campaign. Native saves live in `saves/campaign.json`;
+browser builds use localStorage. Surviving soldiers carry forward, retry restores
+the mission-start roster, and `--fresh` starts a new campaign.
+
+### Tasks
+
+Optional positional arguments are shown in brackets, in recipe order.
+
+| Command | Purpose / output |
+| --- | --- |
+| `just` or `just build` | Build the release Linux game. |
+| `just play [game arguments]` | Build and launch the release game. |
+| `just assets-build` | Build the native asset gallery separately. |
+| `just assets-preview [model] [seed]` | Interactive library or selected model; seed defaults to `1993`. |
+| `just assets-capture [output] [seed] [clip] [time]` | Offscreen contact sheet; defaults to `tmp/asset-library.png`, seed `1993`, no clip. With a clip, freeze at time (default `0.5` seconds). |
+| `just assets-export [model] [seed] [output]` | Export one/all models as GLBs; defaults to seed `1993`, output `tmp/glb/`. |
+| `just assets-validate` | Workspace tests with export support, then WASM compatibility checks; requires the `wasm32-unknown-unknown` target. |
+
+For example, `just assets-capture tmp/run.png 1993 Run 0.5` captures an animation
+pose. The gallery binary also accepts `--model`, `--seed`, `--clip` (continuous
+playback), `--time` (freeze a pose) and `--output` (capture and exit).
+See the [procedural asset authoring guide](.agents/skills/3d-assets/SKILL.md).
+
+### Game options
+
+Pass these through `just play`, for example `just play --fresh --seed 42`.
+
+| Options | Behavior / default |
+| --- | --- |
+| `--help` | Print options and controls, then exit. |
+| `--data DIR` | Original data root; default `data`. |
+| `--map FILE.map`, `--tilesets DIR` | Load a custom map/sprite pair; optionally specify its terrain resources. |
+| `--campaign FILE.ofc --maps DIR` | Load an OpenFodder campaign and its map directory. |
+| `--seed N`, `--asset-seed N` | Independent combat and procedural asset seeds; both default to `1993`. |
+| `--fresh` | Start without loading the existing save. |
+| `--smoke-test` | Capture `tmp/battlefield.png` offscreen and exit. |
+| `--benchmark --benchmark-seconds N` | Offscreen performance run; default 20 seconds; report in `tmp/benchmark.json`. |
+| `--combat-preview` | Capture the combat showcase in `tmp/combat.png` and exit. |
+
+Save a `.map` / `.spt` pair in the existing OpenFodder editor and run:
 
 ```sh
-just assets-build                         # compile native gallery
-just assets-preview                       # labelled library; optional model and seed
-just assets-capture                       # offscreen tmp/asset-library.png
-just assets-capture tmp/run.png 1993 Run 0.5
-just assets-export soldier                # optional complete GLB in tmp/glb/
-```
-
-Use `--asset-seed N` for game asset generation, independently of `--seed` for combat.
-Both default to 1993. Direct gallery options: `--model NAME`, `--seed N`,
-`--clip NAME` (play continuously), `--time SECONDS` (freeze a clip), and
-`--output tmp/gallery.png` (capture and exit). All 15 models share the same runtime
-construction path. GLB export is an optional native `asset-export` feature and
-includes materials, skins and all seven named clips; exported files are never
-consumed by normal builds. See `.agents/skills/3d-assets/SKILL.md` for authoring.
-
-Click Deploy or left-click the battlefield to start the mission. Controls: left click moves or selects a soldier; hold right click to fire; press both mouse buttons to use the selected explosive. Use the squad panel to select groups, split an individual, regroup, select grenades/rockets, deploy and retry. Keyboard equivalents: 1–3 squads, S split, J regroup, G grenades, X rockets, Enter deploy/continue, R retry. Scroll zooms; screen edges pan. The camera follows the active living squad leader near the viewing edges; manual scrolling pauses tracking briefly. F1 hides the HUD; F12 captures `tmp/battlefield.png`.
-
-Explosives require pickups. Enemies are lethal; grenades and rockets can kill your own soldiers. Surviving soldiers carry into the next mission. Retry restores the mission-start roster. Saves are written at successful mission transitions to `saves/campaign.json`; `--fresh` starts a new roster.
-
-## Existing editor workflow
-
-Save the `.map` / `.spt` pair in the OpenFodder editor, then launch it directly:
-
-```sh
-cargo run -- --map '/path/My Mission.map' --tilesets data/Data/AmigaTheOne --fresh
-cargo run -- --campaign '/path/Campaign.ofc' --maps '/path/maps' --tilesets data/Data/AmigaTheOne --fresh
+just play --map '/path/My Mission.map' --tilesets data/Data/AmigaTheOne --fresh
+just play --campaign '/path/Campaign.ofc' --maps '/path/maps' --tilesets data/Data/AmigaTheOne --fresh
 cargo run --no-default-features --bin map-inspect -- data/Data/AmigaTheOne/mapm2.map
 ```
 
-The tileset directory must contain the base/subset `.hit`, `.bht` and `.swp` files named by the map. Original tile graphics are replaced by generated 3D assets. No editor modifications are required. Unsupported sprite IDs or objectives are reported before play; the inspector can examine other environments.
+Terrain resources must include the base/subset `.hit`, `.bht` and `.swp` files
+named by the map. Play currently supports jungle presentation; unsupported sprites
+or objectives are reported before play. See the [importer reference](docs/format.md)
+and [implementation limits](docs/status.md).
 
-## First-mission polish
+## Controls
 
-The first mission now uses reviewed original tile IDs to place dense jungle thickets. Soldiers route around obstacles and follow their leader through gaps. Enemies check visibility and react according to campaign aggression. Shot effects align with aim, with upper-body firing and throwing animation, impacts and movement feedback. See [the reference and acceptance notes](docs/first-mission.md).
-
-```sh
-python3 scripts/reference_tiles.py
-cargo run --release -- --fresh --benchmark --benchmark-seconds 20
-cargo run -- --fresh --combat-preview
-```
-
-The benchmark writes `tmp/benchmark.json`; the combat preview writes `tmp/combat.png`. Performance numbers from offscreen container rendering do not replace host playtesting.
+| Input | Action |
+| --- | --- |
+| Left click / hold right click / both buttons | Move or select / fire / selected explosive. |
+| `1`–`3`, `S`, `J` | Select squad, split a soldier, regroup. |
+| `G`, `X` | Select grenades or rockets (require pickups; friendly fire applies). |
+| `Enter`, `R` | Deploy or continue, retry. Squad-panel buttons also provide these actions. |
+| Scroll / screen edges | Zoom / pan; camera tracks the active leader, briefly pausing after manual scrolling. |
+| `F1`, `F12` | Toggle HUD, capture `tmp/battlefield.png`. |
 
 ## Validation
 
 ```sh
 cargo test --no-default-features
 cargo check --all-targets
-just assets-validate              # workspace contracts and WASM compatibility
-cargo run -- --fresh --smoke-test
+just assets-validate
+just play --fresh --smoke-test
 ```
 
-The smoke test captures a frame in `tmp/battlefield.png` and exits. It renders offscreen and needs no desktop display. In the Codex command sandbox, GPU devices are hidden; run GPU validation through the approved escalated execution path (see AGENTS.md). Host interactive playtesting is the final check for controls and performance.
-
-`just assets-capture` renders `tmp/asset-library.png`.
+Captures render offscreen without a desktop display. Host playtesting remains the
+check for controls and performance; see the [first-mission acceptance notes](docs/first-mission.md).
+For agent GPU diagnostics and visual output requirements, see [AGENTS.md](AGENTS.md#gpu-checks).
 
 ## Data provenance
 
-`scripts/fetch_fixtures.py` downloads 68 unmodified files at the exact OpenFodder/data revision recorded in `tests/fixtures-manifest.json`, verifies SHA-256 checksums, and stores them in ignored `data/`. Original demo data is not included in release archives. Procedural asset definitions live in `crates/models` and `crates/sound`; `assets/` retains shaders and the reviewed terrain catalog. See `docs/format.md` for the importer reference and `docs/status.md` for implementation limits.
+[The fixture downloader](scripts/fetch_fixtures.py) fetches unmodified OpenFodder/data
+files at the revision pinned in [the manifest](tests/fixtures-manifest.json),
+verifies SHA-256 checksums, and stores them in ignored `data/`. Linux CI artifacts
+include the downloader and manifest; web release archives bundle verified game
+data, with `.swp` resources renamed to `.swp.bin` for browser hosting. Reference
+images can be generated with `python3 scripts/reference_tiles.py`.
