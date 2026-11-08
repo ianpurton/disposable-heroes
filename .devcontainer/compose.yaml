@@ -11,6 +11,7 @@ services:
       - codex-config:/home/vscode/.codex
     extra_hosts:
       - host.docker.internal:host-gateway
+      - mcp.host:host-gateway
     devices:
       - /dev/dri:/dev/dri
     security_opt:
