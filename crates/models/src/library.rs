@@ -75,6 +75,42 @@ impl Builder {
     fn rod(&mut self, n: &str, a: Vec3, b: Vec3, r: f32, c: [f32; 3]) {
         self.add(n, rod(a, b, r, 8), Vec3::ZERO, Quat::IDENTITY, c, None);
     }
+    fn leaf(&mut self, name: &str, start: Vec3, end: Vec3, width: f32, color: [f32; 3]) {
+        let d = end - start;
+        let side = d.cross(Vec3::Z).normalize_or_zero() * width;
+        let mid = start.lerp(end, 0.48) + Vec3::Z * width * 0.7;
+        let mut g = Geometry::default();
+        for (a, c) in [(mid - side, mid), (mid, mid + side)] {
+            g.triangle(start, a, c);
+            g.triangle(a, end, c);
+            g.triangle(start, c, a);
+            g.triangle(a, c, end);
+        }
+        self.add(name, g, Vec3::ZERO, Quat::IDENTITY, color, None);
+    }
+    fn spray(&mut self, center: Vec3, radius: f32, phase: usize) {
+        for j in 0..40 {
+            let a = j as f32 * 2.399 + phase as f32;
+            let r = radius * (0.35 + (j % 5) as f32 * 0.14);
+            let p = center
+                + v(
+                    a.cos() * r,
+                    a.sin() * r,
+                    radius * (0.82 - 0.40 * (r / radius).powi(2)),
+                );
+            self.leaf(
+                "Sunlit foliage",
+                p,
+                p + v(
+                    a.cos() * radius * 0.40,
+                    a.sin() * radius * 0.40,
+                    -radius * 0.15,
+                ),
+                radius * 0.19,
+                LEAF[(j + phase) % 4],
+            );
+        }
+    }
     fn rotate_last(&mut self, p: Vec3, q: Quat) {
         let c = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
         self.model
@@ -122,5 +158,21 @@ pub(super) fn build(name: &str, seed: u64) -> Model {
         "wreck" => wreck::build(&mut b, &mut rng),
         _ => unreachable!(),
     }
+    let mut merged: Vec<Part> = vec![];
+    for part in b.model.parts.drain(..) {
+        if let Some(p) = merged.iter_mut().find(|p| {
+            p.color == part.color && p.joint == part.joint && p.roughness == part.roughness
+        }) {
+            let offset = p.geometry.positions.len() as u32;
+            p.geometry.positions.extend(part.geometry.positions);
+            p.geometry.normals.extend(part.geometry.normals);
+            p.geometry
+                .indices
+                .extend(part.geometry.indices.into_iter().map(|i| i + offset));
+        } else {
+            merged.push(part);
+        }
+    }
+    b.model.parts = merged;
     b.model
 }

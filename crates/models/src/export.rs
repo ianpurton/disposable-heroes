@@ -51,6 +51,21 @@ impl Buffer {
 pub fn glb(model: &Model) -> Result<Vec<u8>, String> {
     model.validate()?;
     let mut b = Buffer::default();
+    let surface = surface_texture();
+    let mut texture_bytes = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut texture_bytes, surface.width(), surface.height());
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+        writer
+            .write_image_data(surface.data.as_ref().ok_or("missing surface pixels")?)
+            .map_err(|e| e.to_string())?;
+    }
+    let texture_view = b.views.len();
+    b.views
+        .push(json!({"buffer":0,"byteOffset":0,"byteLength":texture_bytes.len()}));
+    b.data.extend(texture_bytes);
     let mut nodes = vec![json!({"name":model.name,"children":[]})];
     let mut meshes = vec![];
     let mut materials = vec![];
@@ -135,7 +150,12 @@ pub fn glb(model: &Model) -> Result<Vec<u8>, String> {
             None,
             None,
         );
-        let mut attrs = json!({"POSITION":positions,"NORMAL":normals});
+        let uv = b.floats(
+            g.surface_uvs().into_iter().flatten(),
+            "VEC2",
+            g.positions.len(),
+        );
+        let mut attrs = json!({"POSITION":positions,"NORMAL":normals,"TEXCOORD_0":uv});
         if let Some(j) = p.joint {
             let joints = b.accessor(
                 (0..g.positions.len())
@@ -156,7 +176,7 @@ pub fn glb(model: &Model) -> Result<Vec<u8>, String> {
             attrs["WEIGHTS_0"] = json!(weights);
         }
         let m = materials.len();
-        materials.push(json!({"name":format!("{} material",p.name),"pbrMetallicRoughness":{"baseColorFactor":[p.color[0],p.color[1],p.color[2],1.],"metallicFactor":0.,"roughnessFactor":p.roughness}}));
+        materials.push(json!({"name":format!("{} material",p.name),"pbrMetallicRoughness":{"baseColorTexture":{"index":0},"baseColorFactor":[p.color[0],p.color[1],p.color[2],1.],"metallicFactor":0.,"roughnessFactor":p.roughness}}));
         let mesh = meshes.len();
         meshes.push(json!({"name":p.name,"primitives":[{"attributes":attrs,"indices":indices,"material":m,"mode":4}]}));
         let mut node = json!({"name":p.name,"mesh":mesh});
@@ -167,7 +187,7 @@ pub fn glb(model: &Model) -> Result<Vec<u8>, String> {
         nodes.push(node);
     }
     nodes[0]["children"] = json!(children);
-    let mut document = json!({"asset":{"version":"2.0","generator":"models Rust procedural assets"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":nodes,"meshes":meshes,"materials":materials,"buffers":[{"byteLength":b.data.len()}],"bufferViews":b.views,"accessors":b.accessors});
+    let mut document = json!({"images":[{"bufferView":texture_view,"mimeType":"image/png"}],"samplers":[{"wrapS":10497,"wrapT":10497,"magFilter":9729,"minFilter":9729}],"textures":[{"source":0,"sampler":0}],"asset":{"version":"2.0","generator":"models Rust procedural assets"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":nodes,"meshes":meshes,"materials":materials,"buffers":[{"byteLength":b.data.len()}],"bufferViews":b.views,"accessors":b.accessors});
     if !skins.is_empty() {
         document["skins"] = json!(skins);
         document["animations"] = json!(animations);

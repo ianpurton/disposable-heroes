@@ -22,4 +22,34 @@ pub(super) fn build(b: &mut Builder) {
         DARK,
         0.,
     );
+
+    for row in 0..4 {
+        for col in 0..7 {
+            b.cube(
+                "Concrete joint",
+                v(-1.32 + col as f32 * 0.44, -1.208, 0.15 + row as f32 * 0.29),
+                v(0.42, 0.025, 0.018),
+                WOOD,
+                0.,
+            );
+        }
+    }
+    for x in [-1.25, 1.25] {
+        b.cube(
+            "Roof reinforcement",
+            v(x, 0., 1.55),
+            v(0.13, 2.4, 0.055),
+            METAL,
+            0.015,
+        );
+    }
+    for i in 0..9 {
+        b.cube(
+            "Sandbag parapet",
+            v(-1.4 + i as f32 * 0.35, 0.91, 1.61),
+            v(0.37, 0.30, 0.15),
+            SAND,
+            0.06,
+        );
+    }
 }

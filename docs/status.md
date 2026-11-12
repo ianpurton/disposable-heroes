@@ -6,7 +6,27 @@ Implemented: native CF1 import and pinned reference tile decoding; reviewed visu
 
 The existing three imported jungle phases, roster persistence, mission retry, memorial, camera tracking, HUD, generated GLB library and audio remain available. The first mission is the reviewed environment target; the other phases need the same tile-by-tile visual review.
 
-Validation: 25 tests pass (12 core, 11 navigation/environment/combat, 2 camera/facing); Linux dev/release builds and all-target compile checks pass. AMD Vulkan overview and scripted combat captures are in tmp/. Performance results are recorded separately in tmp/benchmark.json.
+Prior baseline validation: 25 tests pass (12 core, 11 navigation/environment/combat, 2 camera/facing); Linux dev/release builds and all-target compile checks pass. AMD Vulkan overview and scripted combat captures are in tmp/. Performance results are recorded separately in tmp/benchmark.json.
+
+Reference graphics refresh: generated surface textures and projected UVs shared by
+the game/gallery/GLB exporter; soil albedo with stones and leaf litter plus normal
+relief; folded palm leaflets, layered broadleaf crowns, roots and mixed forest
+heights; detailed building frames, props, vehicles and soldier equipment; native
+HDR, bloom, ambient occlusion and FXAA; bounded textured flames, smoke, sparks,
+debris and fading scorch marks. Material/bone merging, solid canopy shadow
+casters and a single orthographic shadow cascade keep rendering costs bounded.
+Map collision, objectives, unit dimensions, rigs and animation samples remain
+compatible. Browser builds use smaller shadows and fewer particles without
+native postprocessing.
+
+A 20-second 1080p release benchmark on AMD Radeon Graphics (RADV PHOENIX)
+measured p50/p95/p99 of 14.07/15.08/15.58 ms over 1,414 samples, after three
+seconds of warmup. This is the scripted first mission offscreen on Vulkan, with
+no compositor or vsync; it is not a host interaction or all-mission guarantee.
+Captures and reports are under `tmp/`. The refresh passes all 71 workspace tests
+with export support, all-target native checking and the wasm32 library/game
+compatibility check. Rest, running and firing gallery captures were inspected,
+along with fresh battlefield and combat captures.
 
 Remaining work:
 

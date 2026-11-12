@@ -24,8 +24,23 @@ These values and AI are provisional. No cycle-accurate or footage-measured equiv
 
 ## Visual and input checks
 
-All test images belong in ./tmp. Offscreen `--smoke-test` captures the overview; `--combat-preview` runs deterministic movement/fire and captures tmp/combat.png. Native window clicks must additionally verify deployment, group selection, movement, firing, retry and camera tracking. Host audio mixing remains a separate check because this container has no audio output device.
+All test images belong in ./tmp. Offscreen `--smoke-test` captures the overview; `--combat-preview` runs deterministic movement/fire and captures tmp/combat.png. The combat capture includes a cosmetic blast beside the selected squad at frame
+344 to exercise flames, smoke, sparks, debris and scorch marks without changing
+simulation state. Fire and smoke use generated alpha textures and shared fading
+material stages; all transient geometry expires, including scorch marks after
+14 seconds. The combined effect budget is 768 particles on native and 256 on web.
+Ground relief uses a generated normal map; collision and navigation remain flat.
+Forest strips use spacing adapted to their width, and taller trees are placed
+only where surrounding imported terrain is forest.
+
+Native window clicks must additionally verify deployment, group selection, movement, firing, retry and camera tracking. Host audio mixing remains a separate check because this container has no audio output device.
 
 ## Performance
 
 `cargo run --release -- --fresh --benchmark --benchmark-seconds 20` measures a scripted first-mission scenario at 1920×1080, with a three-second warmup and no desktop compositor or vsync. Results go to tmp/benchmark.json. Report p50/p95/p99 frame times, peak entities/mesh instances, and supported render diagnostic spans. Mesh instances are not draw calls; draw-call data is marked unavailable when the backend does not expose it. Review a release build on the user's Linux host before claiming a 60 fps target has been reached.
+
+The reference graphics refresh measured 14.07/15.08/15.58 ms p50/p95/p99 over
+1,414 frames in a 20-second release run on AMD Radeon Graphics (RADV PHOENIX).
+The orthographic view uses one 2048-pixel shadow cascade; solid thicket crowns
+cast shadows while fine leaf overlays avoid redundant shadow rendering. Native
+ambient occlusion supplies small contact detail without leaf self-shadow artifacts.

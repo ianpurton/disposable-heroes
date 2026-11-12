@@ -14,6 +14,8 @@ use std::collections::HashMap;
 #[cfg(all(feature = "export", not(target_arch = "wasm32")))]
 pub mod export;
 pub mod geometry;
+mod surface;
+pub use surface::{ground_normal_map, surface_texture};
 mod library;
 #[path = "../../seed.rs"]
 mod seed;
@@ -207,7 +209,9 @@ impl PreparedModel {
         materials: &mut Assets<StandardMaterial>,
         binds: &mut Assets<SkinnedMeshInverseBindposes>,
         clips: &mut Assets<AnimationClip>,
+        images: &mut Assets<Image>,
     ) -> Self {
+        let surface = images.add(surface_texture());
         let parts = definition
             .parts
             .iter()
@@ -231,6 +235,7 @@ impl PreparedModel {
                     mesh: meshes.add(mesh),
                     material: materials.add(StandardMaterial {
                         base_color: Color::linear_rgb(p.color[0], p.color[1], p.color[2]),
+                        base_color_texture: Some(surface.clone()),
                         perceptual_roughness: p.roughness,
                         ..default()
                     }),
@@ -324,6 +329,10 @@ impl PreparedModel {
                 ))
                 .id();
             commands.entity(root).add_child(e);
+            // Fine thicket leaves sit over solid crowns, which provide the same broad shadow.
+            if self.definition.name.starts_with("thicket") && p.name == "Sunlit foliage" {
+                commands.entity(e).insert(bevy::light::NotShadowCaster);
+            }
             if self.definition.parts[i].joint.is_some() {
                 commands.entity(e).insert(SkinnedMesh {
                     inverse_bindposes: self.bind.clone().expect("rig bind poses"),
@@ -402,18 +411,41 @@ pub fn ground_texture(seed: u64) -> Image {
             let patch = noise(x, y, 1);
             let detail = noise(x, y, 2);
             let fine = noise(x, y, 3);
-            let soil = ((patch - 0.59) * 4.).clamp(0., 1.);
+            let soil = ((patch - 0.30) * 3.5).clamp(0., 1.);
             let grain = rng.uniform(-0.035, 0.035) as f32;
-            let light = 0.65 + broad * 0.45 + detail * 0.35 + fine * 0.18 + grain;
-            let moss = [0.43, 0.53, 0.29];
-            let earth = [0.48, 0.39, 0.23];
+            let litter = if fine > 0.66 && detail < 0.44 {
+                -0.16
+            } else {
+                0.
+            };
+            let light = 0.63 + broad * 0.32 + detail * 0.32 + fine * 0.25 + grain + litter;
+            let moss = [0.40, 0.45, 0.24];
+            let earth = [0.66, 0.54, 0.35];
+            // Scattered pebbles and fallen leaves at a finer scale than the soil patches.
+            let cell_x = x / 19;
+            let cell_y = y / 19;
+            let hash = (cell_x as u32).wrapping_mul(374761393)
+                ^ (cell_y as u32).wrapping_mul(668265263)
+                ^ seed as u32;
+            let cx = 5. + (hash % 9) as f32;
+            let cy = 5. + ((hash >> 8) % 9) as f32;
+            let dx = (x % 19) as f32 - cx;
+            let dy = (y % 19) as f32 - cy;
+            let pebble = hash % 7 == 0 && dx * dx / 8. + dy * dy / 5. < 1.;
+            let leaf = hash % 5 == 0 && (dx + dy * 0.6).powi(2) / 3. + dy * dy / 23. < 1.;
             for c in 0..3 {
                 let stone = if fine > 0.79 && detail > 0.6 {
                     0.10
                 } else {
                     0.
                 };
-                let v = (moss[c] * (1. - soil) + earth[c] * soil) * light + stone;
+                let v = if pebble {
+                    [0.55, 0.51, 0.40][c] * (0.85 + dy * 0.075)
+                } else if leaf {
+                    [0.30, 0.23, 0.10][c] * (1. + dx * 0.07)
+                } else {
+                    (moss[c] * (1. - soil) + earth[c] * soil) * light + stone
+                };
                 data.push((v.clamp(0., 1.) * 255.) as u8);
             }
             data.push(255);

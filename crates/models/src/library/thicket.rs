@@ -19,6 +19,9 @@ pub(super) fn build(b: &mut Builder, rng: &mut seed::SeededRandom) {
             JUNGLE[if upper { 1 + i % 3 } else { 0 }],
             1,
         );
+        if upper {
+            b.spray(v(a.cos() * r, a.sin() * r, h), radius, i);
+        }
     }
     for i in 0..5 {
         let a = i as f32 * 2.399;
@@ -44,22 +47,6 @@ pub(super) fn build(b: &mut Builder, rng: &mut seed::SeededRandom) {
     for p in &mut b.model.parts {
         p.roughness = 0.9;
     }
-    // Joined foliage keeps instance costs comparable to the original multi-material mesh.
-    let mut merged: Vec<Part> = vec![];
-    for part in b.model.parts.drain(..) {
-        if let Some(existing) = merged.iter_mut().find(|p| p.color == part.color) {
-            let offset = existing.geometry.positions.len() as u32;
-            existing.geometry.positions.extend(part.geometry.positions);
-            existing.geometry.normals.extend(part.geometry.normals);
-            existing
-                .geometry
-                .indices
-                .extend(part.geometry.indices.into_iter().map(|i| i + offset));
-        } else {
-            merged.push(part);
-        }
-    }
-    b.model.parts = merged;
 }
 
 fn recompute_normals(g: &mut Geometry) {

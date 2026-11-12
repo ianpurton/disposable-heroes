@@ -14,6 +14,21 @@ fn exported_models_validate_and_round_trip() {
             let positions: Vec<_> = reader.read_positions().unwrap().collect();
             assert_eq!(positions, part.geometry.positions);
             assert_eq!(
+                reader
+                    .read_tex_coords(0)
+                    .unwrap()
+                    .into_f32()
+                    .collect::<Vec<_>>(),
+                part.geometry.surface_uvs()
+            );
+            assert!(
+                primitive
+                    .material()
+                    .pbr_metallic_roughness()
+                    .base_color_texture()
+                    .is_some()
+            );
+            assert_eq!(
                 primitive
                     .material()
                     .pbr_metallic_roughness()

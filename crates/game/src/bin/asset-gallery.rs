@@ -165,8 +165,14 @@ mod native {
                 center - Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5) * scale,
             )
             .with_scale(Vec3::splat(scale));
-            let prepared =
-                PreparedModel::new(model, &mut meshes, &mut materials, &mut binds, &mut clips);
+            let prepared = PreparedModel::new(
+                model,
+                &mut meshes,
+                &mut materials,
+                &mut binds,
+                &mut clips,
+                &mut images,
+            );
 
             let spawned = prepared.spawn(&mut commands, transform);
             if let (Some(player), Some(clip)) = (spawned.player, options.clip.as_ref()) {
@@ -226,6 +232,8 @@ mod native {
         let camera = commands
             .spawn((
                 Camera3d::default(),
+                bevy::camera::Hdr,
+                bevy::render::view::Tonemapping::TonyMcMapface,
                 Projection::Orthographic(OrthographicProjection {
                     scaling_mode: ScalingMode::AutoMin {
                         min_width: (hi.x - lo.x) * 1.12,
@@ -260,17 +268,25 @@ mod native {
             });
         }
         commands.insert_resource(GlobalAmbientLight {
-            color: Color::srgb(0.68, 0.81, 0.72),
-            brightness: 120.,
+            color: Color::srgb(0.76, 0.84, 1.),
+            brightness: 420.,
             ..default()
         });
         commands.spawn((
             DirectionalLight {
-                illuminance: 9000.,
+                illuminance: 13000.,
+                color: Color::srgb(1., 0.88, 0.68),
                 shadow_maps_enabled: true,
                 ..default()
             },
-            Transform::from_xyz(-20., 45., 12.).looking_at(Vec3::ZERO, Vec3::Y),
+            bevy::light::CascadeShadowConfigBuilder {
+                num_cascades: 1,
+                minimum_distance: 10.,
+                maximum_distance: 100.,
+                ..default()
+            }
+            .build(),
+            Transform::from_xyz(-28., 48., 18.).looking_at(Vec3::ZERO, Vec3::Y),
         ));
         commands.spawn((
             Mesh3d(meshes.add(Plane3d::default().mesh().size(100., 100.))),

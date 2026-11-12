@@ -21,6 +21,23 @@ impl Geometry {
         self.normals.extend([n; 3]);
         self.indices.extend([i, i + 1, i + 2]);
     }
+    /// Planar projection per flat face avoids stretched material detail on walls and roofs.
+    pub fn surface_uvs(&self) -> Vec<[f32; 2]> {
+        self.positions
+            .iter()
+            .zip(&self.normals)
+            .map(|(p, n)| {
+                let n = Vec3::from_array(*n).abs();
+                if n.y >= n.x && n.y >= n.z {
+                    [p[0] * 1.7, p[2] * 1.7]
+                } else if n.x >= n.z {
+                    [p[2] * 1.7, p[1] * 1.7]
+                } else {
+                    [p[0] * 1.7, p[1] * 1.7]
+                }
+            })
+            .collect()
+    }
     pub fn mesh(&self) -> Mesh {
         Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -28,7 +45,7 @@ impl Geometry {
         )
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions.clone())
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals.clone())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0., 0.]; self.positions.len()])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.surface_uvs())
         .with_inserted_indices(Indices::U32(self.indices.clone()))
     }
     pub fn transform(&mut self, m: Mat4) {

@@ -79,8 +79,8 @@ The importer feeds original map geometry, sprites and collision data into the
 renderer-independent simulation. Bevy drives combat at 50 fixed steps per second;
 presentation and UI translate player actions into commands and display battle
 state. Campaign logic carries soldiers and progress between missions, with native
-file or browser storage. Models and sound are generated directly in memory from
-Rust definitions; the game and asset tools share that construction path. Exported
+file or browser storage. Models, sound, material maps, soil normals and effect
+textures are generated directly in memory from Rust definitions; the game and asset tools share that construction path. Exported
 GLBs are optional interoperability outputs and are never game inputs.
 
 ## Run
@@ -141,7 +141,7 @@ Pass these through `just play`, for example `just play --fresh --seed 42`.
 | `--fresh` | Start without loading the existing save. |
 | `--smoke-test` | Capture `tmp/battlefield.png` offscreen and exit. |
 | `--benchmark --benchmark-seconds N` | Offscreen performance run; default 20 seconds; report in `tmp/benchmark.json`. |
-| `--combat-preview` | Capture the combat showcase in `tmp/combat.png` and exit. |
+| `--combat-preview` | Capture scripted combat and a preview-only explosion in `tmp/combat.png` and exit. |
 
 Save a `.map` / `.spt` pair in the existing OpenFodder editor and run:
 
@@ -176,8 +176,16 @@ just assets-validate
 just play --fresh --smoke-test
 ```
 
-Captures render offscreen without a desktop display. Host playtesting remains the
-check for controls and performance; see the [first-mission acceptance notes](docs/first-mission.md).
+Native graphics use HDR, bloom, ambient occlusion, FXAA and 2048-pixel directional
+shadows. Browser builds retain the shared models and textures with 1024-pixel
+shadows and lower particle budgets, without the desktop postprocessing passes.
+Small model parts are merged by material and bone to keep foliage and soldier
+detail from multiplying mesh instances. GLB exports embed the same generated
+surface texture and projected UV coordinates used by the game and gallery.
+
+Captures render offscreen without a desktop display. Smoke and combat captures
+advance at a fixed 60 Hz so shader warmup cannot change the captured effect age.
+Host playtesting remains the check for controls and performance; see the [first-mission acceptance notes](docs/first-mission.md).
 For agent GPU diagnostics and visual output requirements, see [AGENTS.md](AGENTS.md#gpu-checks).
 
 ## Data provenance

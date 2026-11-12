@@ -66,4 +66,81 @@ pub(super) fn build_with_cloth(b: &mut Builder, cloth: [f32; 3]) {
         METAL,
     );
     b.bind_last(5);
+
+    for x in [-0.19, 0.19] {
+        b.cube(
+            "Webbing strap",
+            v(x, -0.199, 1.05),
+            v(0.065, 0.035, 0.43),
+            WOOD,
+            0.01,
+        );
+        b.bind_last(0);
+        b.cube(
+            "Ammo pouch",
+            v(x, -0.23, 0.90),
+            v(0.14, 0.09, 0.16),
+            OLIVE,
+            0.02,
+        );
+        b.bind_last(0);
+        b.cube(
+            "Pack strap",
+            v(x * 0.7, 0.379, 1.04),
+            v(0.045, 0.025, 0.33),
+            DARK,
+            0.005,
+        );
+        b.bind_last(0);
+    }
+    b.cube("Belt", v(0., -0.01, 0.81), v(0.59, 0.41, 0.07), WOOD, 0.02);
+    b.bind_last(0);
+    b.cube(
+        "Buckle",
+        v(0., -0.225, 0.81),
+        v(0.08, 0.025, 0.065),
+        METAL,
+        0.01,
+    );
+    b.bind_last(0);
+    b.ball(
+        "Helmet rim",
+        v(0., 0., 1.60),
+        v(0.315, 0.295, 0.045),
+        cloth,
+        2,
+    );
+    b.bind_last(1);
+    b.cube(
+        "Helmet band",
+        v(0., -0.26, 1.65),
+        v(0.29, 0.035, 0.04),
+        WOOD,
+        0.01,
+    );
+    b.bind_last(1);
+    b.cube(
+        "Rifle receiver",
+        v(0.3, -0.43, 0.96),
+        v(0.105, 0.29, 0.09),
+        METAL,
+        0.015,
+    );
+    b.bind_last(5);
+    b.cube(
+        "Magazine",
+        v(0.3, -0.51, 0.79),
+        v(0.075, 0.14, 0.17),
+        METAL,
+        0.012,
+    );
+    b.bind_last(5);
+    b.cube(
+        "Front sight",
+        v(0.3, -0.97, 0.94),
+        v(0.035, 0.045, 0.09),
+        DARK,
+        0.005,
+    );
+    b.bind_last(5);
 }

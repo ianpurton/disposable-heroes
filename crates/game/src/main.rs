@@ -216,6 +216,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         app.add_plugins(plugins);
     }
+    // Freeze visual captures to fixed frame durations; shader warmup must not age effects.
+    if smoke && !benchmark {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1. / 60.),
+        ));
+    }
     app.insert_resource(ClearColor(Color::srgb(0.035, 0.065, 0.06)))
         .insert_resource(Time::<Fixed>::from_hz(50.))
         .insert_resource(Game {

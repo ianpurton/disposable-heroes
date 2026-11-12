@@ -1,3 +1,4 @@
+mod effects;
 use crate::*;
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
@@ -8,6 +9,7 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
 };
 use bevy::{picking::hover::Hovered, ui_widgets::Activate};
+use effects::Particle;
 use std::collections::HashMap;
 #[derive(Asset, TypePath, bevy::render::render_resource::AsBindGroup, Debug, Clone)]
 struct WaterMaterial {
@@ -51,16 +53,12 @@ struct Offscreen(Handle<Image>);
 #[derive(Component)]
 struct TransientLight(f32);
 
-#[derive(Component)]
-struct Particle {
-    velocity: Vec3,
-    remaining: f32,
-    total: f32,
-}
 #[derive(Resource)]
 struct Library {
     water: Handle<WaterMaterial>,
     ground: Handle<Image>,
+    ground_normal: Handle<Image>,
+    effects: effects::EffectAssets,
     animations: HashMap<
         (bool, String),
         (
@@ -70,8 +68,6 @@ struct Library {
     >,
     models: HashMap<String, models::PreparedModel>,
     sphere: Handle<Mesh>,
-    fire: Handle<StandardMaterial>,
-    smoke: Handle<StandardMaterial>,
     shot: Handle<AudioSource>,
     boom: Handle<AudioSource>,
 }
@@ -147,6 +143,7 @@ impl Plugin for BattlefieldPlugin {
                 unit_views,
                 animate,
                 particles,
+                effects::update,
                 foliage_visibility,
                 hud,
                 capture,
@@ -183,6 +180,7 @@ fn setup(
                     &mut materials,
                     &mut binds,
                     &mut clips,
+                    &mut images,
                 ),
             )
         })
@@ -203,6 +201,7 @@ fn setup(
                 &mut materials,
                 &mut binds,
                 &mut clips,
+                &mut images,
             ),
         );
     }
@@ -218,8 +217,12 @@ fn setup(
         .iter()
         .map(|s| audio.add(s.audio_source()))
         .collect();
+    let ground = models::ground_texture(game.asset_seed);
+    let ground_normal = images.add(models::ground_normal_map(&ground));
     let library = Library {
-        ground: images.add(models::ground_texture(game.asset_seed)),
+        ground: images.add(ground),
+        ground_normal,
+        effects: effects::EffectAssets::new(&mut meshes, &mut materials, &mut images),
         water: water.add(WaterMaterial {
             settings: Vec4::new(0.035, 0.18, 0.16, 0.),
         }),
@@ -231,12 +234,6 @@ fn setup(
                 .ico(1)
                 .expect("valid sphere subdivisions"),
         ),
-        fire: materials.add(StandardMaterial {
-            base_color: Color::srgb(1., 0.38, 0.035),
-            emissive: LinearRgba::rgb(5., 1.1, 0.04),
-            ..default()
-        }),
-        smoke: materials.add(Color::srgb(0.16, 0.19, 0.15)),
         shot: sounds[0].clone(),
         boom: sounds[1].clone(),
     };
@@ -246,6 +243,7 @@ fn setup(
     let camera = commands
         .spawn((
             MainCamera,
+            bevy::camera::ShadowLodOrigin,
             Camera3d::default(),
             bevy::light::ShadowFilteringMethod::Gaussian,
             Projection::Orthographic(OrthographicProjection {
@@ -257,15 +255,37 @@ fn setup(
             }),
             Transform::from_translation(focus + Vec3::new(0., 40., 28.)).looking_at(focus, Vec3::Y),
             DistanceFog {
-                color: Color::srgb(0.26, 0.36, 0.29),
+                color: Color::srgb(0.65, 0.68, 0.60),
                 falloff: FogFalloff::Linear {
-                    start: 65.,
+                    start: 70.,
                     end: 150.,
                 },
                 ..default()
             },
         ))
         .id();
+    #[cfg(not(target_arch = "wasm32"))]
+    commands.entity(camera).insert((
+        bevy::camera::Hdr,
+        bevy::render::view::Tonemapping::TonyMcMapface,
+        bevy::post_process::bloom::Bloom {
+            intensity: 0.10,
+            ..default()
+        },
+        Msaa::Off,
+        bevy::anti_alias::fxaa::Fxaa::default(),
+        bevy::pbr::ScreenSpaceAmbientOcclusion {
+            radius: 0.35,
+            ..default()
+        },
+    ));
+    commands.insert_resource(bevy::light::DirectionalLightShadowMap {
+        size: if cfg!(target_arch = "wasm32") {
+            1024
+        } else {
+            2048
+        },
+    });
     let mut offscreen_target = None;
     if game.smoke {
         let mut image = Image::new_target_texture(
@@ -283,21 +303,28 @@ fn setup(
         commands.insert_resource(Offscreen(handle));
     }
     commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.68, 0.81, 0.72),
+        color: Color::srgb(0.76, 0.84, 1.0),
         // Broad sky fill keeps shaded terrain and uniforms readable.
-        brightness: 1800.,
+        brightness: 420.,
         ..default()
     });
     commands.spawn((
         DirectionalLight {
-            illuminance: 10500.,
-            color: Color::srgb(1., 0.91, 0.76),
+            illuminance: 13000.,
+            color: Color::srgb(1., 0.88, 0.68),
             shadow_maps_enabled: true,
             contact_shadows_enabled: false,
             ..default()
         },
         // A higher sun keeps canopy shadows close to the trees.
-        Transform::from_xyz(-12., 60., 8.).looking_at(Vec3::ZERO, Vec3::Y),
+        bevy::light::CascadeShadowConfigBuilder {
+            num_cascades: 1,
+            minimum_distance: 10.,
+            maximum_distance: 100.,
+            ..default()
+        }
+        .build(),
+        Transform::from_xyz(-28., 48., 18.).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     spawn_level(
         &mut commands,
@@ -316,6 +343,14 @@ fn setup(
             },
         ))
         .id();
+    // Stacked cameras must share target format and MSAA to preserve the 3D color buffer.
+    // The world camera already tone maps it; UI is composited afterward without another curve.
+    #[cfg(not(target_arch = "wasm32"))]
+    commands.entity(hud_camera).insert((
+        bevy::camera::Hdr,
+        Msaa::Off,
+        bevy::render::view::Tonemapping::None,
+    ));
     if let Some(handle) = offscreen_target {
         commands
             .entity(hud_camera)
@@ -454,13 +489,13 @@ fn terrain_mesh(b: &Battle, kind: u8) -> Option<Mesh> {
             let variation = (begin as f32 * 0.045).sin() * 0.008 + (y as f32 * 0.037).cos() * 0.008;
             let c = match kind {
                 1 => [0.035, 0.17, 0.14, 1.],
-                2 => [0.035, 0.085, 0.018, 1.],
-                _ => [0.33 + variation, 0.43 + variation, 0.18 + variation, 1.],
+                2 => [0.10, 0.15, 0.045, 1.],
+                _ => [0.64 + variation, 0.58 + variation, 0.40 + variation, 1.],
             };
             for (xx, yy) in [(begin, y), (begin, y + 2), (x, y + 2), (x, y)] {
                 pos.push([xx as f32 * SCALE, h, yy as f32 * SCALE]);
                 norms.push([0., 1., 0.]);
-                uv.push([xx as f32 / 173., yy as f32 / 173.]);
+                uv.push([xx as f32 / 107., yy as f32 / 107.]);
                 colors.push(c);
             }
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -471,17 +506,17 @@ fn terrain_mesh(b: &Battle, kind: u8) -> Option<Mesh> {
     if pos.is_empty() {
         return None;
     }
-    Some(
-        Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, norms)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
-        .with_inserted_indices(Indices::U32(indices)),
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
     )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, norms)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+    .with_inserted_indices(Indices::U32(indices));
+    let _ = mesh.generate_tangents();
+    Some(mesh)
 }
 fn spawn_level(
     commands: &mut Commands,
@@ -494,7 +529,7 @@ fn spawn_level(
         LevelEntity,
         Mesh3d(meshes.add(Plane3d::default().mesh().size(600., 600.))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.19, 0.27, 0.16),
+            base_color: Color::srgb(0.24, 0.25, 0.15),
             perceptual_roughness: 1.,
             ..default()
         })),
@@ -505,6 +540,11 @@ fn spawn_level(
             base_color: Color::WHITE,
             base_color_texture: if kind != 1 {
                 Some(lib.ground.clone())
+            } else {
+                None
+            },
+            normal_map_texture: if kind != 1 {
+                Some(lib.ground_normal.clone())
             } else {
                 None
             },
@@ -527,13 +567,14 @@ fn spawn_level(
     for patch in disposable_heroes::environment::thickets(&b.map, &catalog) {
         // Each mask cell gets an upright, uniformly scaled instance. Jitter stays
         // inside that cell, preserving the imported paths and openings.
-        for y in (0..patch.depth as usize).step_by(6) {
-            for x in (0..patch.width as usize).step_by(6) {
+        let step = patch.width.min(patch.depth).min(6.) as usize;
+        for y in (0..patch.depth as usize).step_by(step) {
+            for x in (0..patch.width as usize).step_by(step) {
                 let gx = patch.x as u64 + x as u64;
                 let gy = patch.y as u64 + y as u64;
                 let hash = gx.wrapping_mul(73856093) ^ gy.wrapping_mul(19349663) ^ 1993;
-                let width = (patch.width - x as f32).min(6.);
-                let depth = (patch.depth - y as f32).min(6.);
+                let width = (patch.width - x as f32).min(step as f32);
+                let depth = (patch.depth - y as f32).min(step as f32);
                 let extent = width.min(depth);
                 let scale = extent * SCALE * (0.94 + (hash % 71) as f32 * 0.008);
                 let center = world(Point::new(
@@ -544,6 +585,26 @@ fn spawn_level(
                         + depth * 0.5
                         + (((hash >> 16) % 101) as f32 / 100. - 0.5) * extent * 0.65,
                 ));
+                // Taller trees only in deep forest; their crowns stay clear of imported routes.
+                if hash % 19 == 0
+                    && [-12., 0., 12.].into_iter().all(|dx| {
+                        [-12., 0., 12.].into_iter().all(|dy| {
+                            b.map
+                                .terrain_at(center.x / SCALE + dx, center.z / SCALE + dy)
+                                == 3
+                        })
+                    })
+                {
+                    let tree_scale = 0.52 + (hash % 7) as f32 * 0.025;
+                    let tree = model(
+                        commands,
+                        lib,
+                        if hash % 3 == 0 { "palm" } else { "tree" },
+                        center,
+                        tree_scale,
+                    );
+                    commands.entity(tree).insert(Foliage { height: tree_scale });
+                }
                 let id = model(commands, lib, &format!("canopy{}", hash % 6), center, scale);
                 commands.entity(id).insert((
                     Foliage { height: scale },
@@ -950,13 +1011,31 @@ fn unit_views(
             }
         }
     }
-    let mut particle_budget = 512usize.saturating_sub(particle_count.iter().count());
+    let mut particle_budget = (if cfg!(target_arch = "wasm32") {
+        256usize
+    } else {
+        768usize
+    })
+    .saturating_sub(particle_count.iter().count());
     let mut light_budget = 4;
+    // Preview-only blast exercises the complete effect lifecycle without changing combat state.
+    if game.combat_preview && game.frames == 344 {
+        if let Some(unit) = game
+            .battle
+            .units
+            .iter()
+            .find(|u| game.battle.selected_unit(u))
+        {
+            let position = world(unit.pos) + Vec3::new(3., 0., 0.8);
+            lib.effects
+                .burst(&mut commands, &lib, position, true, &mut particle_budget);
+        }
+    }
     let effects = std::mem::take(&mut game.battle.effects);
     let mut shot_sound = false;
     let mut boom_sound = false;
     for effect in effects {
-        let (p, count, explosion) = match effect {
+        let (p, _count, explosion) = match effect {
             Effect::Shot {
                 origin,
                 direction,
@@ -970,19 +1049,8 @@ fn unit_views(
                     continue;
                 }
                 particle_budget -= 1;
-                commands.spawn((
-                    LevelEntity,
-                    Mesh3d(lib.sphere.clone()),
-                    MeshMaterial3d(lib.fire.clone()),
-                    Transform::from_translation(muzzle).with_scale(Vec3::splat(
-                        if weapon == Weapon::Rifle { 0.18 } else { 0.28 },
-                    )),
-                    Particle {
-                        velocity: Vec3::ZERO,
-                        remaining: 0.10,
-                        total: 0.10,
-                    },
-                ));
+                lib.effects
+                    .muzzle(&mut commands, &lib, muzzle, weapon != Weapon::Rifle);
                 continue;
             }
             Effect::Impact(p) => (p, 3, false),
@@ -1011,30 +1079,13 @@ fn unit_views(
             Effect::Death(p) => (p, 5, false),
             Effect::Pickup(p) => (p, 8, false),
         };
-        for i in 0..count {
-            if particle_budget == 0 {
-                break;
-            }
-            particle_budget -= 1;
-            let a = i as f32 * 2.399;
-            let speed = if explosion { 2. + (i % 5) as f32 } else { 0.5 };
-            commands.spawn((
-                LevelEntity,
-                Mesh3d(lib.sphere.clone()),
-                MeshMaterial3d(if i % 3 == 0 {
-                    lib.fire.clone()
-                } else {
-                    lib.smoke.clone()
-                }),
-                Transform::from_translation(world(p) + Vec3::Y * 0.5)
-                    .with_scale(Vec3::splat(if explosion { 0.16 } else { 0.12 })),
-                Particle {
-                    velocity: Vec3::new(a.cos() * speed, 1. + (i % 4) as f32, a.sin() * speed),
-                    remaining: if explosion { 1.4 } else { 0.2 },
-                    total: if explosion { 1.4 } else { 0.2 },
-                },
-            ));
-        }
+        lib.effects.burst(
+            &mut commands,
+            &lib,
+            world(p),
+            explosion,
+            &mut particle_budget,
+        );
     }
     if shot_sound {
         commands.spawn((
@@ -1156,7 +1207,6 @@ fn particles(
     lib: Res<Library>,
     mut water: ResMut<Assets<WaterMaterial>>,
     mut feedback: ResMut<OrderFeedback>,
-    mut q: Query<(Entity, &mut Particle, &mut Transform)>,
 ) {
     for (entity, mut lifetime, mut light) in &mut lights {
         lifetime.0 -= time.delta_secs();
@@ -1174,21 +1224,8 @@ fn particles(
             feedback.0 = None;
         }
     }
-    for (e, mut p, mut t) in &mut q {
-        p.remaining -= time.delta_secs();
-        if p.remaining <= 0. {
-            commands.entity(e).despawn();
-            continue;
-        }
-        t.translation += p.velocity * time.delta_secs();
-        p.velocity *= 1. - time.delta_secs() * 1.5;
-        if p.total > 0.1 {
-            t.scale = Vec3::splat(
-                (0.08 + (1. - p.remaining / p.total) * 0.45) * (p.remaining / 0.25).min(1.),
-            );
-        }
-    }
 }
+
 fn button(commands: &mut Commands, label: &str, parent: Entity) -> Entity {
     let e = commands
         .spawn((
