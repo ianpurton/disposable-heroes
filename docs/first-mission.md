@@ -39,9 +39,11 @@ Native window clicks must additionally verify deployment, group selection, movem
 
 `cargo run --release -- --fresh --benchmark --benchmark-seconds 20` measures a scripted first-mission scenario at 1920×1080, with a three-second warmup and no desktop compositor or vsync. Results go to tmp/benchmark.json. Report p50/p95/p99 frame times, peak entities/mesh instances, and supported render diagnostic spans. Mesh instances are not draw calls; draw-call data is marked unavailable when the backend does not expose it. Review a release build on the user's Linux host before claiming a 60 fps target has been reached.
 
-The orthographic view uses one 2048-pixel shadow cascade. Flora trees and shrubs
-share pooled mesh LODs, with shadow-casting impostors for distant views on native
-renderers. Check default and far views separately with `--view-scale 1` and
-`--view-scale 2`; default-view mesh cost and far-view impostor cost differ.
-Atlas preparation is reported separately as `startup_seconds`. Native ambient
-occlusion supplies contact detail. Browser WebGL2 uses mesh LODs without impostors.
+The orthographic view uses one 2048-pixel shadow cascade. Native and browser
+WebGPU builds share the same shadow-casting forest impostors at every gameplay
+zoom. Check default and far views separately with `--view-scale 1` and
+`--view-scale 2`; screen coverage still changes render cost. Atlas preparation
+is reported separately as `startup_seconds`. Both targets share HDR, bloom,
+ambient occlusion, FXAA and particle budgets. Browser runtime acceptance includes
+WebGPU adapter availability, atlas baking, shadows and postprocessing, plus a
+clear startup message when WebGPU is unavailable.

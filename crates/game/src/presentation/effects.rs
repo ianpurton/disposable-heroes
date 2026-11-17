@@ -201,11 +201,7 @@ impl EffectAssets {
         explosion: bool,
         budget: &mut usize,
     ) {
-        let count = if explosion {
-            if cfg!(target_arch = "wasm32") { 26 } else { 48 }
-        } else {
-            4
-        };
+        let count = if explosion { 48 } else { 4 };
         for i in 0..count {
             if *budget == 0 {
                 break;

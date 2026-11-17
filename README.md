@@ -135,11 +135,14 @@ Recipes live in `crates/models/src/library/flora.rs`; six mature variants per
 species share meshes and materials across instances and mission retries. No
 exported assets or external texture scans are required.
 
-Native rendering uses pooled mesh LODs and runtime-baked impostors, with the bake
-angle matched to the battlefield camera and impostor shadows enabled. Browser
-WebGL2 uses pooled mesh LODs without impostors. Native startup prepares the atlases;
-smoke captures wait for baking, and benchmarks report preparation separately as
-`startup_seconds` before a three-second warmup.
+Native and browser WebGPU builds share the same forest renderer: runtime-baked
+impostors at the battlefield camera's pitch, with impostor shadows enabled. Both
+prepare the atlases at startup; smoke captures wait for baking, and benchmarks
+report preparation separately as `startup_seconds` before a three-second warmup.
+
+Browser builds require WebGPU and an available GPU adapter over HTTPS (or localhost).
+There is no WebGL2 fallback. The launcher reports unsupported browsers or unavailable
+adapters before starting the game. Native builds continue to use the desktop renderer.
 
 The asset gallery includes the Flora recipes by default. Select only the forest
 with `just assets-preview flora`, or capture it with
@@ -204,9 +207,11 @@ just assets-validate
 just play --fresh --smoke-test
 ```
 
-Native graphics use HDR, bloom, ambient occlusion, FXAA and 2048-pixel directional
-shadows. Browser builds retain the shared models and textures with 1024-pixel
-shadows and lower particle budgets, without the desktop postprocessing passes.
+Native and WebGPU graphics share HDR, bloom, ambient occlusion, FXAA, 2048-pixel
+directional shadows and particle budgets. Platform-specific code remains for browser
+startup, asset/data loading, save storage and native benchmark/export tools.
+F12 uses Bevy’s shared screenshot path: it saves a file on native and downloads
+an image in the browser.
 Small model parts are merged by material and bone to keep foliage and soldier
 detail from multiplying mesh instances. GLB exports embed the same generated
 surface texture and projected UV coordinates used by the game and gallery.

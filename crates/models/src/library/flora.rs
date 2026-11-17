@@ -38,15 +38,10 @@ pub fn recipe(name: &str, seed: u64) -> TreeParams {
 pub fn pool(name: &str, seed: u64, meshes: &mut Assets<Mesh>) -> TreePool {
     let lod = LodSettings {
         distances: LodDistances {
-            // The fixed native gameplay camera always uses baked impostors.
-            // Browser builds retain mesh LODs because impostors are disabled there.
-            lod1: if cfg!(target_arch = "wasm32") { 20. } else { 0. },
-            lod2: if cfg!(target_arch = "wasm32") { 35. } else { 0. },
-            impostor: if cfg!(target_arch = "wasm32") {
-                f32::INFINITY
-            } else {
-                0.
-            },
+            // Both native and WebGPU use impostors at the fixed gameplay camera.
+            lod1: 0.,
+            lod2: 0.,
+            impostor: 0.,
         },
         impostor_elevation: (40_f32 / 28.).atan().to_degrees(),
         impostor_shadows: true,

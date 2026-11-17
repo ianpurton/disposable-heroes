@@ -2,7 +2,6 @@ mod diagnostics;
 mod effects;
 mod flora;
 use crate::*;
-#[cfg(not(target_arch = "wasm32"))]
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy::{
     asset::RenderAssetUsages,
@@ -50,7 +49,6 @@ struct Button;
 #[derive(Component)]
 struct MainCamera;
 #[derive(Resource)]
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct Offscreen(Handle<Image>);
 #[derive(Component)]
 struct TransientLight(f32);
@@ -247,7 +245,6 @@ fn setup(
             },
         ))
         .id();
-    #[cfg(not(target_arch = "wasm32"))]
     commands.entity(camera).insert((
         bevy::camera::Hdr,
         bevy::render::view::Tonemapping::TonyMcMapface,
@@ -262,13 +259,7 @@ fn setup(
             ..default()
         },
     ));
-    commands.insert_resource(bevy::light::DirectionalLightShadowMap {
-        size: if cfg!(target_arch = "wasm32") {
-            1024
-        } else {
-            2048
-        },
-    });
+    commands.insert_resource(bevy::light::DirectionalLightShadowMap { size: 2048 });
     let mut offscreen_target = None;
     if game.smoke {
         let mut image = Image::new_target_texture(
@@ -329,7 +320,6 @@ fn setup(
     commands.insert_resource(diagnostics::DiagnosticsCamera(hud_camera));
     // Stacked cameras must share target format and MSAA to preserve the 3D color buffer.
     // The world camera already tone maps it; UI is composited afterward without another curve.
-    #[cfg(not(target_arch = "wasm32"))]
     commands.entity(hud_camera).insert((
         bevy::camera::Hdr,
         Msaa::Off,
@@ -995,12 +985,7 @@ fn unit_views(
             }
         }
     }
-    let mut particle_budget = (if cfg!(target_arch = "wasm32") {
-        256usize
-    } else {
-        768usize
-    })
-    .saturating_sub(particle_count.iter().count());
+    let mut particle_budget = 768usize.saturating_sub(particle_count.iter().count());
     let mut light_budget = 4;
     // Preview-only blast exercises the complete effect lifecycle without changing combat state.
     if game.combat_preview && game.frames == 344 {
@@ -1327,17 +1312,14 @@ fn hud(
     }
 }
 fn capture(
-    #[cfg(not(target_arch = "wasm32"))] mut commands: Commands,
+    mut commands: Commands,
     mut game: ResMut<Game>,
     mut exit: MessageWriter<AppExit>,
-    #[cfg(not(target_arch = "wasm32"))] offscreen: Option<Res<Offscreen>>,
+    offscreen: Option<Res<Offscreen>>,
     library: Res<Library>,
     pools: Res<Assets<bevy_flora::TreePool>>,
     mut waiting: Local<u32>,
-    #[cfg(not(target_arch = "wasm32"))] impostors: Query<
-        &ViewVisibility,
-        With<MeshMaterial3d<bevy_flora::ImpostorMaterial>>,
-    >,
+    impostors: Query<&ViewVisibility, With<MeshMaterial3d<bevy_flora::ImpostorMaterial>>>,
 ) {
     if game.smoke && !library.forest.ready(&pools) {
         *waiting += 1;
@@ -1348,12 +1330,12 @@ fn capture(
         return;
     }
     game.frames += 1;
-    #[cfg(not(target_arch = "wasm32"))]
     if game.screenshot || game.smoke && !game.benchmark && game.frames == 360 {
         info!(
             "Vegetation capture: {} impostors visible in render views",
             impostors.iter().filter(|visible| visible.get()).count()
         );
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = std::fs::create_dir_all("tmp");
         commands
             .spawn(offscreen.map_or_else(Screenshot::primary_window, |target| {

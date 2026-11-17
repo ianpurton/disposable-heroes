@@ -85,7 +85,22 @@ jobs:
           # Match the wasm-bindgen library version selected by Cargo.lock.
           version="$(cargo tree --locked -p disposable-heroes --target wasm32-unknown-unknown -i wasm-bindgen --prefix none | sed -n 's/^wasm-bindgen v\([0-9][0-9.]*\).*$/\1/p' | head -n 1)"
           test -n "$version" || { echo 'Cannot find wasm-bindgen dependency'; exit 1; }
-          cargo install wasm-bindgen-cli --version "$version" --locked
+          # Use the official prebuilt CLI instead of compiling it on every release.
+          bundle="wasm-bindgen-${version}-x86_64-unknown-linux-musl"
+          archive="${bundle}.tar.gz"
+          release_url="https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}"
+          install_dir="$RUNNER_TEMP/wasm-bindgen-cli"
+          # The upstream checksum names the archive under gh-release/.
+          mkdir -p "$install_dir/gh-release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$release_url/$archive" --output "$install_dir/gh-release/$archive"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$release_url/$archive.sha256sum" --output "$install_dir/$archive.sha256sum"
+          (cd "$install_dir" && sha256sum --check "$archive.sha256sum")
+          tar -xzf "$install_dir/gh-release/$archive" -C "$install_dir"
+          cli_dir="$install_dir/$bundle"
+          test "$("$cli_dir/wasm-bindgen" --version)" = "wasm-bindgen $version"
+          echo "$cli_dir" >> "$GITHUB_PATH"
 
       - name: Fetch and verify required game data
         run: python3 scripts/fetch_fixtures.py
@@ -118,15 +133,18 @@ jobs:
               window.addEventListener('error', event => console.error('Disposable Heroes:', event.error || event.message));
               window.addEventListener('unhandledrejection', event => console.error('Disposable Heroes async error:', event.reason));
               try {
-                if (!document.createElement('canvas').getContext('webgl2')) {
-                  throw new Error('WebGL2 is unavailable. Enable browser hardware acceleration.');
+                if (!navigator.gpu) {
+                  throw new Error('WebGPU is unavailable. Use a WebGPU-capable browser with hardware acceleration over HTTPS.');
+                }
+                if (!await navigator.gpu.requestAdapter()) {
+                  throw new Error('No WebGPU adapter is available. Check browser GPU support and hardware acceleration.');
                 }
                 await init();
                 // Wavedash injects its SDK into the hosting page.
                 if (window.Wavedash) window.Wavedash.init({debug: false});
               } catch (error) {
                 console.error('Game failed to start:', error);
-                document.body.textContent = 'Unable to load Disposable Heroes.';
+                document.body.textContent = 'Unable to load Disposable Heroes: ' + (error instanceof Error ? error.message : String(error));
               }
             </script>
           </body>
