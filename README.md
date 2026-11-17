@@ -186,7 +186,13 @@ and [implementation limits](docs/status.md).
 | `G`, `X` | Select grenades or rockets (require pickups; friendly fire applies). |
 | `Enter`, `R` | Deploy or continue, retry. Squad-panel buttons also provide these actions. |
 | Scroll / screen edges | Zoom / pan; camera tracks the active leader, briefly pausing after manual scrolling. |
-| `F1`, `F12` | Toggle HUD, capture `tmp/battlefield.png`. |
+| `F1`, `F2`, `F12` | Toggle game HUD, toggle performance diagnostics, capture `tmp/battlefield.png`. |
+
+The F2 diagnostics windows show FPS, frame time and available render CPU/GPU timings
+in milliseconds. They start hidden and can be dragged or collapsed. GPU timings
+depend on backend support; browser builds show frame and available CPU measurements.
+Native render diagnostics run even while hidden, adding profiling overhead. Automated
+captures and benchmarks keep the windows hidden.
 
 ## Validation
 

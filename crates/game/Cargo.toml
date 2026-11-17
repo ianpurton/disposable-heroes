@@ -13,7 +13,7 @@ asset-export = ["game", "models/export"]
 bevy_flora = { version = "=0.47.0", optional = true, default-features = false }
 models = { path = "../models", optional = true }
 sound = { path = "../sound", optional = true }
-bevy = { version = "=0.20.1", optional = true, default-features = false, features = ["3d", "ui", "audio", "wav"] }
+bevy = { version = "=0.20.1", optional = true, default-features = false, features = ["3d", "ui", "audio", "wav", "bevy_dev_tools", "render_dev_tools"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

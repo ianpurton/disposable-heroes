@@ -1,3 +1,4 @@
+mod diagnostics;
 mod effects;
 mod flora;
 use crate::*;
@@ -116,9 +117,7 @@ impl Default for Benchmark {
 pub struct BattlefieldPlugin;
 impl Plugin for BattlefieldPlugin {
     fn build(&self, app: &mut App) {
-        if app.world().resource::<Game>().benchmark {
-            app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
-        }
+        app.add_plugins(diagnostics::BattlefieldDiagnosticsPlugin);
         app.add_plugins((
             FrameTimeDiagnosticsPlugin::default(),
             MaterialPlugin::<WaterMaterial>::default(),
@@ -332,6 +331,7 @@ fn setup(
             },
         ))
         .id();
+    commands.insert_resource(diagnostics::DiagnosticsCamera(hud_camera));
     // Stacked cameras must share target format and MSAA to preserve the 3D color buffer.
     // The world camera already tone maps it; UI is composited afterward without another curve.
     #[cfg(not(target_arch = "wasm32"))]

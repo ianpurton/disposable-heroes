@@ -69,7 +69,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     if args.iter().any(|a| a == "--help") {
         println!(
-            "Disposable Heroes\n--data DIR (default data)\n--map FILE.map [--tilesets DIR]\n--campaign FILE.ofc --maps DIR\n--view-scale N\n--seed N --asset-seed N --fresh --smoke-test --benchmark [--benchmark-seconds N] --combat-preview\nMouse: left move/select, right hold fire, both buttons explosive.\n1/2/3 squads, G grenades, X rockets, S split, J join, R retry, Enter deploy/continue, F1 HUD, F12 screenshot."
+            "Disposable Heroes\n--data DIR (default data)\n--map FILE.map [--tilesets DIR]\n--campaign FILE.ofc --maps DIR\n--view-scale N\n--seed N --asset-seed N --fresh --smoke-test --benchmark [--benchmark-seconds N] --combat-preview\nMouse: left move/select, right hold fire, both buttons explosive.\n1/2/3 squads, G grenades, X rockets, S split, J join, R retry, Enter deploy/continue, F1 HUD, F2 performance diagnostics, F12 screenshot."
         );
         return Ok(());
     }
