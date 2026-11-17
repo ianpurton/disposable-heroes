@@ -22,23 +22,18 @@ mod library;
 #[path = "../../seed.rs"]
 mod seed;
 pub const DEFAULT_SEED: u64 = 1993;
-pub const NAMES: [&str; 17] = [
+pub const NAMES: [&str; 12] = [
     "hill",
     "gravestone",
     "bridge",
     "bunker",
-    "bush",
     "crate",
     "enemy",
     "grass",
     "hut",
     "jeep",
-    "palm",
     "rock",
     "soldier",
-    "thicket",
-    "thicket_edge",
-    "tree",
     "wreck",
 ];
 pub const CLIPS: [&str; 7] = ["Idle", "Run", "Fire", "Throw", "Rocket", "Swim", "Death"];
@@ -331,10 +326,6 @@ impl PreparedModel {
                 ))
                 .id();
             commands.entity(root).add_child(e);
-            // Fine thicket leaves sit over solid crowns, which provide the same broad shadow.
-            if self.definition.name.starts_with("thicket") && p.name == "Sunlit foliage" {
-                commands.entity(e).insert(bevy::light::NotShadowCaster);
-            }
             if self.definition.parts[i].joint.is_some() {
                 commands.entity(e).insert(SkinnedMesh {
                     inverse_bindposes: self.bind.clone().expect("rig bind poses"),

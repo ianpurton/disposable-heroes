@@ -48,9 +48,11 @@ impl Forest {
     pub fn ready(&self, pools: &Assets<TreePool>) -> bool {
         self.pools.iter().all(|handle| {
             pools.get(handle).is_some_and(|pool| {
-                pool.variants
-                    .iter()
-                    .all(|variant| variant.impostor.is_some())
+                !pool.lod.distances.impostor.is_finite()
+                    || pool
+                        .variants
+                        .iter()
+                        .all(|variant| variant.impostor.is_some())
             })
         })
     }
@@ -63,11 +65,14 @@ mod tests {
     #[test]
     fn pooled_children_follow_foliage_visibility_and_level_cleanup() {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin))
-            .add_systems(
-                PostUpdate,
-                bevy::camera::visibility::visibility_propagate_system,
-            );
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin::default(),
+            bevy::transform::TransformPlugin,
+        ))
+        .init_asset::<Mesh>()
+        .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
+        .add_plugins(bevy::camera::visibility::VisibilityPlugin);
         app.add_systems(Startup, |mut commands: Commands| {
             let forest = Forest {
                 pools: std::array::from_fn(|_| Handle::default()),

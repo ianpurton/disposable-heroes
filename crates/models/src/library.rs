@@ -6,18 +6,13 @@ use geometry::*;
 mod ammo_crate;
 mod bridge;
 mod bunker;
-mod bush;
 mod enemy;
 mod grass;
 mod hill;
 mod hut;
 mod jeep;
-mod palm;
 mod rock;
 mod soldier;
-mod thicket;
-mod thicket_edge;
-mod tree;
 mod wreck;
 
 const OLIVE: [f32; 3] = [0.20, 0.28, 0.095];
@@ -33,12 +28,6 @@ const LEAF: [[f32; 3]; 4] = [
     [0.22, 0.40, 0.12],
     [0.32, 0.46, 0.15],
     [0.08, 0.19, 0.10],
-];
-const JUNGLE: [[f32; 3]; 4] = [
-    [0.035, 0.12, 0.025],
-    [0.07, 0.21, 0.04],
-    [0.12, 0.29, 0.055],
-    [0.20, 0.35, 0.075],
 ];
 fn v(x: f32, y: f32, z: f32) -> Vec3 {
     Vec3::new(x, y, z)
@@ -88,29 +77,6 @@ impl Builder {
         }
         self.add(name, g, Vec3::ZERO, Quat::IDENTITY, color, None);
     }
-    fn spray(&mut self, center: Vec3, radius: f32, phase: usize) {
-        for j in 0..40 {
-            let a = j as f32 * 2.399 + phase as f32;
-            let r = radius * (0.35 + (j % 5) as f32 * 0.14);
-            let p = center
-                + v(
-                    a.cos() * r,
-                    a.sin() * r,
-                    radius * (0.82 - 0.40 * (r / radius).powi(2)),
-                );
-            self.leaf(
-                "Sunlit foliage",
-                p,
-                p + v(
-                    a.cos() * radius * 0.40,
-                    a.sin() * radius * 0.40,
-                    -radius * 0.15,
-                ),
-                radius * 0.19,
-                LEAF[(j + phase) % 4],
-            );
-        }
-    }
     fn rotate_last(&mut self, p: Vec3, q: Quat) {
         let c = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
         self.model
@@ -141,20 +107,15 @@ pub(super) fn build(name: &str, seed: u64) -> Model {
     match name {
         "bridge" => bridge::build(&mut b),
         "bunker" => bunker::build(&mut b),
-        "bush" => bush::build(&mut b),
         "crate" => ammo_crate::build(&mut b),
         "enemy" => enemy::build(&mut b),
         "grass" => grass::build(&mut b),
         "hut" => hut::build(&mut b),
         "jeep" => jeep::build(&mut b),
-        "palm" => palm::build(&mut b),
         "hill" => hill::build(&mut b),
         "gravestone" => hill::grave(&mut b),
         "rock" => rock::build(&mut b),
         "soldier" => soldier::build(&mut b),
-        "thicket" => thicket::build(&mut b, &mut rng),
-        "thicket_edge" => thicket_edge::build(&mut b, &mut rng),
-        "tree" => tree::build(&mut b),
         "wreck" => wreck::build(&mut b, &mut rng),
         _ => unreachable!(),
     }

@@ -127,29 +127,25 @@ The saved viewport frames the library; select a model and press numpad `.` to
 focus it. This optional export uses temporary GLBs and Blender's bundled Python;
 it is separate from the game build and does not change the Rust asset sources.
 
-### Flora vegetation trial
+### Forest rendering
 
-Run `just play --fresh --vegetation flora` to try the replacement forest, or
-`--vegetation current` for the existing scenery. Forest masks, route openings,
-collision and selected-soldier foliage hiding use the same game logic. The Flora
-recipes live in `crates/models/src/library/flora.rs`; they build six mature
-variants per species, shared across instances and mission retries. No exported
-assets or external texture scans are required.
+`just play --fresh` uses Flora trees, palms and shrubs. Forest masks, route
+openings, collision and selected-soldier foliage hiding follow the imported map.
+Recipes live in `crates/models/src/library/flora.rs`; six mature variants per
+species share meshes and materials across instances and mission retries. No
+exported assets or external texture scans are required.
 
-Native Flora uses pooled mesh LODs and runtime-baked impostors, with the bake
-angle matched to the battlefield camera and impostor shadows enabled. The
-browser's WebGL2 renderer uses pooled mesh LODs without impostors. Startup takes
-longer while native atlases bake; smoke captures wait for baking, and benchmarks
-report preparation separately as `startup_seconds` before a three-second warmup.
+Native rendering uses pooled mesh LODs and runtime-baked impostors, with the bake
+angle matched to the battlefield camera and impostor shadows enabled. Browser
+WebGL2 uses pooled mesh LODs without impostors. Native startup prepares the atlases;
+smoke captures wait for baking, and benchmarks report preparation separately as
+`startup_seconds` before a three-second warmup.
 
-Preview the shared recipes with `just assets-preview flora` or capture them with
+The asset gallery includes the Flora recipes by default. Select only the forest
+with `just assets-preview flora`, or capture it with
 `cargo run --release --bin asset-gallery -- --model flora --output tmp/flora-library.png`.
-The original asset library and optional GLB exporter retain their existing model
-catalog. For comparable game captures, run each vegetation mode with
-`--fresh --smoke-test --view-scale 0.5`, `1` or `2`, preserving
-`tmp/battlefield.png` between runs. Benchmark each mode separately with
-`--fresh --benchmark --benchmark-seconds 20`; preserve `tmp/benchmark.json`
-between runs. Frame times are hardware-dependent; Flora remains an opt-in trial.
+Optional GLB export handles the remaining procedural model catalog.
+Use `--view-scale 0.5`, `1` or `2` for close, default or far game captures.
 
 ### Game options
 
@@ -162,8 +158,7 @@ Pass these through `just play`, for example `just play --fresh --seed 42`.
 | `--map FILE.map`, `--tilesets DIR` | Load a custom map/sprite pair; optionally specify its terrain resources. |
 | `--campaign FILE.ofc --maps DIR` | Load an OpenFodder campaign and its map directory. |
 | `--seed N`, `--asset-seed N` | Independent combat and procedural asset seeds; both default to `1993`. |
-| `--vegetation current\|flora` | Select existing vegetation (default) or the experimental Flora trees, palms and thickets. |
-| `--view-scale N` | Orthographic view size multiplier, `0.5`–`2`; default `1`. Use matching values for vegetation comparisons. |
+| `--view-scale N` | Orthographic view size multiplier, `0.5`–`2`; default `1`.  |
 | `--fresh` | Start without loading the existing save. |
 | `--smoke-test` | Capture `tmp/battlefield.png` offscreen and exit. |
 | `--benchmark --benchmark-seconds N` | Offscreen performance run; default 20 seconds; report in `tmp/benchmark.json`. |

@@ -54,7 +54,7 @@ pub fn pool(name: &str, seed: u64, meshes: &mut Assets<Mesh>) -> TreePool {
     bevy_flora::build_pool(&recipe(name, seed), VARIANTS, f32::INFINITY, &lod, meshes)
 }
 
-/// Keep the trunk at its placement anchor and fit crowns to the existing scenery envelope.
+/// Ground each variant and center its crown inside the existing scenery envelope.
 /// A child transform performs this fit so visibility logic can retain a uniform root scale.
 pub fn fitted_transform(pool: &TreePool, variant: u32, envelope: Vec3) -> Transform {
     let bounds = pool.variants[variant as usize % pool.variants.len()].bounds[0];

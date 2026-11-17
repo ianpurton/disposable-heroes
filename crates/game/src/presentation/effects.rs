@@ -323,7 +323,11 @@ mod tests {
         let mut images = Assets::<Image>::default();
         let effects = EffectAssets::new(&mut meshes, &mut materials, &mut images);
         let library = Library {
-            forest: None,
+            forest: flora::Forest::new(
+                1993,
+                &mut meshes,
+                &mut Assets::<bevy_flora::TreePool>::default(),
+            ),
             effects,
             sphere: meshes.add(Sphere::new(1.)),
             ground: Handle::default(),

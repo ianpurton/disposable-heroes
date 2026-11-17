@@ -18,7 +18,7 @@ fn catalog_valid_deterministic_and_order_independent() {
                     .all(|n| (Vec3::from_array(*n).length() - 1.).abs() < 1e-4)
             );
         }
-        if matches!(name, "wreck" | "thicket" | "thicket_edge") {
+        if name == "wreck" {
             let other = generate(name, GenerationOptions { seed: 1 }).unwrap();
             assert_ne!(
                 a.parts[0].geometry.positions,
@@ -168,11 +168,8 @@ fn detail_preserves_gameplay_footprints() {
     let baseline: serde_json::Value =
         serde_json::from_str(include_str!("legacy-models.json")).unwrap();
     for name in NAMES {
-        // New campaign scenery has no legacy baseline; jungle recipes replace silhouettes.
-        if matches!(
-            name,
-            "hill" | "gravestone" | "palm" | "thicket" | "thicket_edge"
-        ) {
+        // Campaign scenery has no legacy baseline.
+        if matches!(name, "hill" | "gravestone") {
             continue;
         }
         let model = generate(name, GenerationOptions::default()).unwrap();

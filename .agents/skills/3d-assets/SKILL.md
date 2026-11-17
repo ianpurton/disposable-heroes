@@ -23,7 +23,7 @@ description: Author, preview, validate and optionally export deterministic proce
 - Generation must be deterministic and independent of catalog iteration and
   gameplay RNG. Default seed is 1993; the game exposes `--asset-seed`. The small
   shared internal MT19937 helper in `crates/seed.rs` preserves legacy sequences.
-  Thicket edge skips 60 draws; ground skips 120; sounds share a sequential stream.
+  Ground skips 120 draws; sounds share a sequential stream.
 - `just assets-build` compiles the gallery. `just assets-preview [model] [seed]`
   opens it. `just assets-capture [output] [seed] [clip] [time]` writes a labelled,
   bounds-fitted contact sheet without a desktop display. Omit clip for rest pose.

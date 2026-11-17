@@ -64,7 +64,11 @@ mod native {
             }
             vec![n]
         } else {
-            models::NAMES.iter().map(|s| s.to_string()).collect()
+            models::NAMES
+                .iter()
+                .chain(models::flora::NAMES.iter())
+                .map(|s| s.to_string())
+                .collect()
         };
         let clip = value("--clip");
         if clip

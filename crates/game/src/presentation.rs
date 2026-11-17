@@ -56,7 +56,7 @@ struct TransientLight(f32);
 
 #[derive(Resource)]
 struct Library {
-    forest: Option<flora::Forest>,
+    forest: flora::Forest,
     water: Handle<WaterMaterial>,
     ground: Handle<Image>,
     ground_normal: Handle<Image>,
@@ -170,15 +170,13 @@ fn setup(
     game: Res<Game>,
     mut water: ResMut<Assets<WaterMaterial>>,
     mut images: ResMut<Assets<Image>>,
-    mut pools: Option<ResMut<Assets<bevy_flora::TreePool>>>,
+    mut pools: ResMut<Assets<bevy_flora::TreePool>>,
 ) {
     let options = models::GenerationOptions {
         seed: game.asset_seed,
     };
-    let forest = pools
-        .as_deref_mut()
-        .map(|pools| flora::Forest::new(game.asset_seed, &mut meshes, pools));
-    let mut models: HashMap<String, models::PreparedModel> = models::NAMES
+    let forest = flora::Forest::new(game.asset_seed, &mut meshes, &mut pools);
+    let models: HashMap<String, models::PreparedModel> = models::NAMES
         .into_iter()
         .map(|name| {
             let definition = models::generate(name, options).expect("valid built-in model");
@@ -195,26 +193,6 @@ fn setup(
             )
         })
         .collect();
-    for variant in 0..6 {
-        let definition = models::generate(
-            "thicket",
-            models::GenerationOptions {
-                seed: game.asset_seed.wrapping_add(variant * 7919),
-            },
-        )
-        .expect("valid jungle variant");
-        models.insert(
-            format!("canopy{variant}"),
-            models::PreparedModel::new(
-                definition,
-                &mut meshes,
-                &mut materials,
-                &mut binds,
-                &mut clips,
-                &mut images,
-            ),
-        );
-    }
     let mut animations = HashMap::new();
     for (faction, name) in [(false, "soldier"), (true, "enemy")] {
         let (graph, nodes) = models[name].animation_graph();
@@ -607,36 +585,15 @@ fn spawn_level(
                     })
                 {
                     let tree_scale = 0.52 + (hash % 7) as f32 * 0.025;
-                    if let Some(forest) = &lib.forest {
-                        forest.spawn(
-                            commands,
-                            if hash % 3 == 0 { 1 } else { 0 },
-                            hash,
-                            center,
-                            tree_scale,
-                        );
-                    } else {
-                        let tree = model(
-                            commands,
-                            lib,
-                            if hash % 3 == 0 { "palm" } else { "tree" },
-                            center,
-                            tree_scale,
-                        );
-                        commands.entity(tree).insert(Foliage { height: tree_scale });
-                    }
+                    lib.forest.spawn(
+                        commands,
+                        if hash % 3 == 0 { 1 } else { 0 },
+                        hash,
+                        center,
+                        tree_scale,
+                    );
                 }
-                if let Some(forest) = &lib.forest {
-                    forest.spawn(commands, 2, hash, center, scale);
-                    continue;
-                }
-                let id = model(commands, lib, &format!("canopy{}", hash % 6), center, scale);
-                commands.entity(id).insert((
-                    Foliage { height: scale },
-                    Transform::from_translation(center)
-                        .with_scale(Vec3::splat(scale))
-                        .with_rotation(Quat::from_rotation_y(hash as f32 * 0.618)),
-                ));
+                lib.forest.spawn(commands, 2, hash, center, scale);
             }
         }
     }
@@ -651,44 +608,32 @@ fn spawn_level(
             {
                 continue;
             }
-            let name = if hash % 17 == 0 { "bush" } else { "grass" };
-            if name == "bush" {
-                if let Some(forest) = &lib.forest {
-                    forest.spawn(commands, 2, hash, world(p), 0.25 + (hash % 7) as f32 * 0.02);
-                    continue;
-                }
+            let scale = 0.25 + (hash % 7) as f32 * 0.02;
+            if hash % 17 == 0 {
+                lib.forest.spawn(commands, 2, hash, world(p), scale);
+            } else {
+                model(commands, lib, "grass", world(p), scale);
             }
-            model(
-                commands,
-                lib,
-                name,
-                world(p),
-                0.25 + (hash % 7) as f32 * 0.02,
-            );
         }
     }
     for s in &b.map.sprites {
-        let name = match s.kind {
-            13 | 17 => "bush",
-            14 => "palm",
-            24 => "rock",
-            _ => continue,
-        };
         let position = world(Point::new(s.x() as f32, s.y as f32));
-        if name != "rock" {
-            if let Some(forest) = &lib.forest {
+        match s.kind {
+            13 | 17 | 14 => {
                 let hash = s.x() as u64 * 73856093 ^ s.y as u64 * 19349663 ^ 1993;
-                forest.spawn(
+                lib.forest.spawn(
                     commands,
-                    if name == "palm" { 1 } else { 2 },
+                    if s.kind == 14 { 1 } else { 2 },
                     hash,
                     position,
                     1.,
                 );
-                continue;
             }
+            24 => {
+                model(commands, lib, "rock", position, 1.);
+            }
+            _ => {}
         }
-        model(commands, lib, name, position, 1.);
     }
     for (i, b) in b.buildings.iter().enumerate() {
         let e = model(
@@ -1391,16 +1336,14 @@ fn capture(
     mut exit: MessageWriter<AppExit>,
     #[cfg(not(target_arch = "wasm32"))] offscreen: Option<Res<Offscreen>>,
     library: Res<Library>,
-    pools: Option<Res<Assets<bevy_flora::TreePool>>>,
+    pools: Res<Assets<bevy_flora::TreePool>>,
     mut waiting: Local<u32>,
-    impostors: Query<&ViewVisibility, With<MeshMaterial3d<bevy_flora::ImpostorMaterial>>>,
+    #[cfg(not(target_arch = "wasm32"))] impostors: Query<
+        &ViewVisibility,
+        With<MeshMaterial3d<bevy_flora::ImpostorMaterial>>,
+    >,
 ) {
-    if game.smoke
-        && library
-            .forest
-            .as_ref()
-            .is_some_and(|forest| pools.as_ref().is_none_or(|pools| !forest.ready(pools)))
-    {
+    if game.smoke && !library.forest.ready(&pools) {
         *waiting += 1;
         if *waiting > 1800 {
             error!("Flora atlas baking did not complete; refusing an incomplete capture");
@@ -1554,7 +1497,7 @@ fn benchmark(
             .filter(|d| d.path().as_str().starts_with("render/"))
             .filter_map(|d| d.smoothed().map(|v| (d.path().as_str().to_string(), v)))
             .collect::<std::collections::BTreeMap<_, _>>();
-        let report = serde_json::json!({"profile":if cfg!(debug_assertions){"dev"}else{"release"},"resolution":[1920,1080],"scenario":"first mission; seed 1993; scripted movement and fire; 3s warmup", "render_path":"offscreen Vulkan; no vsync; excludes desktop compositor", "vegetation":if game.flora {"flora"} else {"current"},"view_scale":game.view_scale,"startup_seconds":state.startup_seconds,"seconds":game.benchmark_seconds,"scenario_repetitions":state.repetitions,"samples":state.samples.len(),"frame_ms":{"p50":percentile(0.5),"p95":percentile(0.95),"p99":percentile(0.99)},"peak_entities":state.max_entities,"peak_mesh_instances":state.max_meshes,"peak_impostors_visible_in_any_view":state.max_visible_impostors,"render_diagnostics":render,"draw_calls":"not available from stock diagnostics; mesh instances are not draw calls"});
+        let report = serde_json::json!({"profile":if cfg!(debug_assertions){"dev"}else{"release"},"resolution":[1920,1080],"scenario":"first mission; seed 1993; scripted movement and fire; 3s warmup", "render_path":"offscreen Vulkan; no vsync; excludes desktop compositor", "vegetation":"flora","view_scale":game.view_scale,"startup_seconds":state.startup_seconds,"seconds":game.benchmark_seconds,"scenario_repetitions":state.repetitions,"samples":state.samples.len(),"frame_ms":{"p50":percentile(0.5),"p95":percentile(0.95),"p99":percentile(0.99)},"peak_entities":state.max_entities,"peak_mesh_instances":state.max_meshes,"peak_impostors_visible_in_any_view":state.max_visible_impostors,"render_diagnostics":render,"draw_calls":"not available from stock diagnostics; mesh instances are not draw calls"});
         let _ = std::fs::create_dir_all("tmp");
         match std::fs::write(
             "tmp/benchmark.json",
