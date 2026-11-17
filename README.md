@@ -130,7 +130,7 @@ it is separate from the game build and does not change the Rust asset sources.
 ### Forest rendering
 
 `just play --fresh` uses Flora trees, palms and shrubs. Forest masks, route
-openings, collision and selected-soldier foliage hiding follow the imported map.
+openings and collision follow the imported map.
 Recipes live in `crates/models/src/library/flora.rs`; six mature variants per
 species share meshes and materials across instances and mission retries. No
 exported assets or external texture scans are required.
@@ -188,11 +188,12 @@ and [implementation limits](docs/status.md).
 | Scroll / screen edges | Zoom / pan; camera tracks the active leader, briefly pausing after manual scrolling. |
 | `F1`, `F2`, `F12` | Toggle game HUD, toggle performance diagnostics, capture `tmp/battlefield.png`. |
 
-The F2 diagnostics windows show FPS, frame time and available render CPU/GPU timings
-in milliseconds. They start hidden and can be dragged or collapsed. GPU timings
-depend on backend support; browser builds show frame and available CPU measurements.
-Native render diagnostics run even while hidden, adding profiling overhead. Automated
-captures and benchmarks keep the windows hidden.
+The F2 performance panel starts hidden on the right. It shows up to 15 rows:
+FPS, frame time, and the 13 most expensive available GPU render passes in milliseconds.
+Backends without GPU timings show CPU render timings instead. The panel can be
+dragged or collapsed. Render diagnostics run even while hidden, adding profiling
+overhead. Automated captures and benchmarks keep the panel hidden.
+The squad controls occupy a full-height left sidebar outside the battlefield viewport.
 
 ## Validation
 

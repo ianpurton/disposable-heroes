@@ -83,10 +83,6 @@ struct CameraRig {
 struct AnimationState(usize);
 #[derive(Resource, Default)]
 struct OrderFeedback(Option<(Point, bool, f32)>);
-#[derive(Component)]
-struct Foliage {
-    height: f32,
-}
 #[derive(Resource)]
 struct Benchmark {
     start: bevy::platform::time::Instant,
@@ -149,7 +145,6 @@ impl Plugin for BattlefieldPlugin {
                 animate,
                 particles,
                 effects::update,
-                foliage_visibility,
                 hud,
                 capture,
                 benchmark,
@@ -351,16 +346,17 @@ fn setup(
             UiTargetCamera(hud_camera),
             Node {
                 position_type: PositionType::Absolute,
-                left: px(18),
-                top: px(18),
-
-                width: px(230),
+                left: px(0),
+                top: px(0),
+                height: px(1080),
+                width: px(SIDEBAR_WIDTH),
+                flex_shrink: 0.,
                 padding: UiRect::all(px(12)),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(7),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.025, 0.045, 0.035, 0.95)),
+            BackgroundColor(Color::srgb(0.025, 0.045, 0.035)),
         ))
         .id();
     let title = commands
@@ -1509,24 +1505,6 @@ fn benchmark(
         exit.write(AppExit::Success);
     }
 }
-fn foliage_visibility(
-    game: Res<Game>,
-    mut foliage: Query<(&Foliage, &mut Transform, &mut Visibility)>,
-) {
-    for (foliage, mut transform, mut visibility) in &mut foliage {
-        let nearby = game
-            .battle
-            .units
-            .iter()
-            .filter(|u| game.battle.selected_unit(u))
-            .any(|u| {
-                let d = transform.translation - world(u.pos);
-                d.x.abs() < foliage.height * 0.6 + 0.7 && d.z > -2. && d.z < 3.
-            });
-        apply_foliage_visibility(&mut transform, &mut visibility, foliage.height, nearby);
-    }
-}
-
 fn explosive_press(mouse: &ButtonInput<MouseButton>) -> bool {
     mouse.pressed(MouseButton::Right) && mouse.just_pressed(MouseButton::Left)
 }
@@ -1598,36 +1576,8 @@ mod continuous_fire_tests {
     }
 }
 
-fn apply_foliage_visibility(
-    transform: &mut Transform,
-    visibility: &mut Visibility,
-    scale: f32,
-    nearby: bool,
-) {
-    transform.scale = Vec3::splat(scale);
-    *visibility = if nearby {
-        Visibility::Hidden
-    } else {
-        Visibility::Inherited
-    };
-}
-#[cfg(test)]
-mod foliage_tests {
-    use super::*;
-    #[test]
-    fn proximity_preserves_uniform_scale_and_ground_anchor() {
-        let mut transform = Transform::from_xyz(3., 0., 7.);
-        let mut visibility = Visibility::Inherited;
-        for nearby in [false, true, true, false] {
-            apply_foliage_visibility(&mut transform, &mut visibility, 0.8, nearby);
-            assert_eq!(transform.scale, Vec3::splat(0.8));
-            assert_eq!(transform.translation, Vec3::new(3., 0., 7.));
-            assert_eq!(visibility == Visibility::Hidden, nearby);
-        }
-    }
-}
-
 // Logical battlefield dimensions stay fixed across window sizes.
+const SIDEBAR_WIDTH: f32 = 280.;
 const VIEW_HEIGHT: f32 = 32.;
 const VIEW_WIDTH: f32 = VIEW_HEIGHT * 1640. / 1080.;
 const TILE_SIZE: f32 = 16. * SCALE;
@@ -1688,6 +1638,7 @@ fn update_camera(
     mut rig: ResMut<CameraRig>,
     mut cameras: Query<(&mut Camera, &mut Transform, &mut Projection), With<MainCamera>>,
     mut ui_scale: ResMut<UiScale>,
+    mut sidebar: Query<&mut Node, With<HudPanel>>,
 ) {
     let Ok((mut camera, mut transform, mut projection)) = cameras.single_mut() else {
         return;
@@ -1713,8 +1664,14 @@ fn update_camera(
     }
     ui_scale.0 = scale;
     let origin = (size - Vec2::new(1920., 1080.) * scale) * 0.5;
+    let sidebar_visible =
+        *screen.get() == crate::game_flow::GameScreen::Playing && !flow.paused && !flow.options;
+    for mut node in &mut sidebar {
+        node.left = px(origin.x / scale);
+        node.top = px(origin.y / scale);
+    }
     let rect = Rect::from_corners(
-        origin + Vec2::new(0., 0.) * scale,
+        origin + Vec2::new(if sidebar_visible { SIDEBAR_WIDTH } else { 0. }, 0.) * scale,
         origin + Vec2::new(1920., 1080.) * scale,
     );
     camera.viewport = Some(bevy::camera::Viewport {

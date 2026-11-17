@@ -1,4 +1,4 @@
-//! Shared pools outlive level entities; roots retain the game's visibility behavior.
+//! Shared pools outlive level entities; roots own placement and level cleanup.
 use super::*;
 use bevy_flora::{PooledTree, TreePool};
 
@@ -29,7 +29,6 @@ impl Forest {
         commands
             .spawn((
                 LevelEntity,
-                Foliage { height: scale },
                 Transform::from_translation(center)
                     .with_scale(Vec3::splat(scale))
                     .with_rotation(Quat::from_rotation_y(hash as f32 * 0.618)),
@@ -63,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pooled_children_follow_foliage_visibility_and_level_cleanup() {
+    fn pooled_children_follow_root_visibility_and_level_cleanup() {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
