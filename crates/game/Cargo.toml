@@ -6,10 +6,11 @@ default-run = "disposable-heroes"
 
 [features]
 default = ["game"]
-game = ["dep:bevy", "dep:models", "dep:sound"]
+game = ["dep:bevy", "dep:models", "dep:sound", "dep:bevy_flora"]
 asset-export = ["game", "models/export"]
 
 [dependencies]
+bevy_flora = { version = "=0.47.0", optional = true, default-features = false }
 models = { path = "../models", optional = true }
 sound = { path = "../sound", optional = true }
 bevy = { version = "=0.20.1", optional = true, default-features = false, features = ["3d", "ui", "audio", "wav"] }

@@ -52,12 +52,14 @@ mod native {
         };
         if args.iter().any(|a| a == "--help") {
             println!(
-                "asset-gallery [--seed N] [--model NAME] [--clip NAME] [--time SECONDS] [--output tmp/gallery.png]\nOmit --output for interactive preview. --clip enables playback; --time freezes a pose."
+                "asset-gallery [--seed N] [--model NAME] [--clip NAME] [--time SECONDS] [--output tmp/gallery.png]\nUse --model flora for all three forest recipes. Omit --output for interactive preview. --clip enables playback; --time freezes a pose."
             );
             return Ok(());
         }
-        let names = if let Some(n) = value("--model") {
-            if !models::NAMES.contains(&n.as_str()) {
+        let names = if value("--model").as_deref() == Some("flora") {
+            models::flora::NAMES.iter().map(|s| s.to_string()).collect()
+        } else if let Some(n) = value("--model") {
+            if !models::NAMES.contains(&n.as_str()) && !models::flora::NAMES.contains(&n.as_str()) {
                 return Err(format!("unknown model {n}").into());
             }
             vec![n]
@@ -115,6 +117,12 @@ mod native {
         } else {
             app.add_plugins(plugins.build().disable::<bevy::audio::AudioPlugin>());
         }
+        let flora = names
+            .iter()
+            .any(|name| models::flora::NAMES.contains(&name.as_str()));
+        if flora {
+            app.add_plugins(bevy_flora::FloraPlugin);
+        }
         let result = app
             .insert_resource(Options {
                 seed: value("--seed")
@@ -144,6 +152,7 @@ mod native {
         mut clips: ResMut<Assets<AnimationClip>>,
         mut graphs: ResMut<Assets<AnimationGraph>>,
         mut images: ResMut<Assets<Image>>,
+        mut pools: Option<ResMut<Assets<bevy_flora::TreePool>>>,
     ) {
         let columns = options.names.len().min(5);
         let rows = options.names.len().div_ceil(columns);
@@ -152,42 +161,63 @@ mod native {
         let mut keep = vec![];
         let mut label_entities = vec![];
         for (i, name) in options.names.iter().enumerate() {
-            let model = models::generate(name, GenerationOptions { seed: options.seed })
-                .expect("catalog model");
-            let (lo, hi) = model.bounds();
-            let scale = 3.2 / (hi - lo).max_element().max(0.001);
             let center = Vec3::new(
                 (i % columns) as f32 * spacing,
                 0.,
                 (i / columns) as f32 * row_spacing,
             );
-            let transform = Transform::from_translation(
-                center - Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5) * scale,
-            )
-            .with_scale(Vec3::splat(scale));
-            let prepared = PreparedModel::new(
-                model,
-                &mut meshes,
-                &mut materials,
-                &mut binds,
-                &mut clips,
-                &mut images,
-            );
-
-            let spawned = prepared.spawn(&mut commands, transform);
-            if let (Some(player), Some(clip)) = (spawned.player, options.clip.as_ref()) {
-                let mut graph = AnimationGraph::new();
-                let node = graph.add_clip(prepared.clips[clip].clone(), 1., graph.root);
-                let mut p = AnimationPlayer::default();
-                let active = p.play(node);
-                if let Some(time) = options.time {
-                    active.set_seek_time(time).pause();
-                } else {
-                    active.repeat();
+            if models::flora::NAMES.contains(&name.as_str()) {
+                if let Some(pools) = pools.as_deref_mut() {
+                    let pool = models::flora::pool(name, options.seed, &mut meshes);
+                    let fit = models::flora::fitted_transform(&pool, 0, Vec3::splat(3.2));
+                    let handle = pools.add(pool);
+                    commands
+                        .spawn((Transform::from_translation(center), Visibility::Inherited))
+                        .with_children(|parent| {
+                            parent.spawn((
+                                bevy_flora::PooledTree {
+                                    pool: handle,
+                                    variant: 0,
+                                },
+                                fit,
+                            ));
+                        });
                 }
-                commands
-                    .entity(player)
-                    .insert((AnimationGraphHandle(graphs.add(graph)), p));
+            } else {
+                let model = models::generate(name, GenerationOptions { seed: options.seed })
+                    .expect("catalog model");
+                let (lo, hi) = model.bounds();
+                let scale = 3.2 / (hi - lo).max_element().max(0.001);
+                let transform = Transform::from_translation(
+                    center - Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5) * scale,
+                )
+                .with_scale(Vec3::splat(scale));
+                let prepared = PreparedModel::new(
+                    model,
+                    &mut meshes,
+                    &mut materials,
+                    &mut binds,
+                    &mut clips,
+                    &mut images,
+                );
+
+                let spawned = prepared.spawn(&mut commands, transform);
+                if let (Some(player), Some(clip)) = (spawned.player, options.clip.as_ref()) {
+                    let mut graph = AnimationGraph::new();
+                    let node = graph.add_clip(prepared.clips[clip].clone(), 1., graph.root);
+                    let mut p = AnimationPlayer::default();
+                    let active = p.play(node);
+                    if let Some(time) = options.time {
+                        active.set_seek_time(time).pause();
+                    } else {
+                        active.repeat();
+                    }
+                    commands
+                        .entity(player)
+                        .insert((AnimationGraphHandle(graphs.add(graph)), p));
+                }
+
+                keep.push(prepared);
             }
 
             let label = commands
@@ -206,7 +236,6 @@ mod native {
                 ))
                 .id();
             label_entities.push(label);
-            keep.push(prepared);
         }
         // Strong handles live as long as the gallery, including animation and skin assets.
         commands.insert_resource(GalleryModels(keep));
@@ -312,6 +341,7 @@ mod native {
         mut state: Option<ResMut<Capture>>,
         options: Res<Options>,
         mut exit: MessageWriter<AppExit>,
+        pools: Option<Res<Assets<bevy_flora::TreePool>>>,
     ) {
         let Some(state) = state.as_mut() else {
             return;
@@ -322,7 +352,14 @@ mod native {
             exit.write(AppExit::error());
             return;
         }
-        if state.frames >= 90 && !state.requested {
+        let ready = pools.as_ref().is_none_or(|pools| {
+            pools.iter().all(|(_, pool)| {
+                pool.variants
+                    .iter()
+                    .all(|variant| variant.impostor.is_some())
+            })
+        });
+        if state.frames >= 90 && ready && !state.requested {
             state.requested = true;
             let path = options.output.clone().expect("capture output");
             commands

@@ -14,6 +14,8 @@ pub(crate) fn app() -> App {
         .insert_resource(Game {
             battle,
             asset_seed: 1993,
+            flora: false,
+            view_scale: 1.,
             campaign,
             phase_counts: vec![2, 1],
             mission_titles: vec!["TEST".into(); 2],

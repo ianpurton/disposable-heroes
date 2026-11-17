@@ -9,6 +9,8 @@ use std::path::PathBuf;
 pub struct Game {
     pub battle: Battle,
     pub asset_seed: u64,
+    pub flora: bool,
+    pub view_scale: f32,
     pub campaign: Campaign,
     pub phase_counts: Vec<usize>,
     pub mission_titles: Vec<String>,
@@ -68,9 +70,23 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     if args.iter().any(|a| a == "--help") {
         println!(
-            "Disposable Heroes\n--data DIR (default data)\n--map FILE.map [--tilesets DIR]\n--campaign FILE.ofc --maps DIR\n--seed N --asset-seed N --fresh --smoke-test --benchmark [--benchmark-seconds N] --combat-preview\nMouse: left move/select, right hold fire, both buttons explosive.\n1/2/3 squads, G grenades, X rockets, S split, J join, R retry, Enter deploy/continue, F1 HUD, F12 screenshot."
+            "Disposable Heroes\n--data DIR (default data)\n--map FILE.map [--tilesets DIR]\n--campaign FILE.ofc --maps DIR\n--vegetation current|flora --view-scale N\n--seed N --asset-seed N --fresh --smoke-test --benchmark [--benchmark-seconds N] --combat-preview\nMouse: left move/select, right hold fire, both buttons explosive.\n1/2/3 squads, G grenades, X rockets, S split, J join, R retry, Enter deploy/continue, F1 HUD, F12 screenshot."
         );
         return Ok(());
+    }
+    let flora = match value("--vegetation").as_deref().unwrap_or("current") {
+        "current" => false,
+        "flora" => true,
+        other => {
+            return Err(format!("unknown vegetation mode {other}; use current or flora").into());
+        }
+    };
+    let view_scale = value("--view-scale")
+        .map(|s| s.parse::<f32>())
+        .transpose()?
+        .unwrap_or(1.);
+    if !view_scale.is_finite() || !(0.5..=2.).contains(&view_scale) {
+        return Err("--view-scale must be between 0.5 and 2".into());
     }
     let data = PathBuf::from(value("--data").unwrap_or("data".into()));
     let mut maps = vec![
@@ -216,6 +232,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         app.add_plugins(plugins);
     }
+    if flora {
+        app.add_plugins(bevy_flora::FloraPlugin);
+    }
     // Freeze visual captures to fixed frame durations; shader warmup must not age effects.
     if smoke && !benchmark {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
@@ -226,6 +245,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .insert_resource(Time::<Fixed>::from_hz(50.))
         .insert_resource(Game {
             battle,
+            flora,
+            view_scale,
             asset_seed: value("--asset-seed")
                 .map(|s| s.parse())
                 .transpose()?

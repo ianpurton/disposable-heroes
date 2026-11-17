@@ -13,6 +13,8 @@ use bevy::{
 use std::collections::HashMap;
 #[cfg(all(feature = "export", not(target_arch = "wasm32")))]
 pub mod export;
+#[path = "library/flora.rs"]
+pub mod flora;
 pub mod geometry;
 mod surface;
 pub use surface::{ground_normal_map, surface_texture};

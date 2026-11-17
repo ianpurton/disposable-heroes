@@ -323,6 +323,7 @@ mod tests {
         let mut images = Assets::<Image>::default();
         let effects = EffectAssets::new(&mut meshes, &mut materials, &mut images);
         let library = Library {
+            forest: None,
             effects,
             sphere: meshes.add(Sphere::new(1.)),
             ground: Handle::default(),

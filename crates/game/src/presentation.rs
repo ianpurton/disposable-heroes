@@ -1,4 +1,5 @@
 mod effects;
+mod flora;
 use crate::*;
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
@@ -55,6 +56,7 @@ struct TransientLight(f32);
 
 #[derive(Resource)]
 struct Library {
+    forest: Option<flora::Forest>,
     water: Handle<WaterMaterial>,
     ground: Handle<Image>,
     ground_normal: Handle<Image>,
@@ -88,8 +90,10 @@ struct Foliage {
 struct Benchmark {
     start: bevy::platform::time::Instant,
     samples: Vec<f64>,
+    startup_seconds: Option<f32>,
     max_entities: usize,
     max_meshes: usize,
+    max_visible_impostors: usize,
     saved: bool,
     source: Option<Battle>,
     repetitions: u32,
@@ -99,8 +103,10 @@ impl Default for Benchmark {
         Self {
             start: bevy::platform::time::Instant::now(),
             samples: vec![],
+            startup_seconds: None,
             max_entities: 0,
             max_meshes: 0,
+            max_visible_impostors: 0,
             saved: false,
             source: None,
             repetitions: 0,
@@ -164,10 +170,14 @@ fn setup(
     game: Res<Game>,
     mut water: ResMut<Assets<WaterMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut pools: Option<ResMut<Assets<bevy_flora::TreePool>>>,
 ) {
     let options = models::GenerationOptions {
         seed: game.asset_seed,
     };
+    let forest = pools
+        .as_deref_mut()
+        .map(|pools| flora::Forest::new(game.asset_seed, &mut meshes, pools));
     let mut models: HashMap<String, models::PreparedModel> = models::NAMES
         .into_iter()
         .map(|name| {
@@ -220,6 +230,7 @@ fn setup(
     let ground = models::ground_texture(game.asset_seed);
     let ground_normal = images.add(models::ground_normal_map(&ground));
     let library = Library {
+        forest,
         ground: images.add(ground),
         ground_normal,
         effects: effects::EffectAssets::new(&mut meshes, &mut materials, &mut images),
@@ -248,8 +259,8 @@ fn setup(
             bevy::light::ShadowFilteringMethod::Gaussian,
             Projection::Orthographic(OrthographicProjection {
                 scaling_mode: ScalingMode::Fixed {
-                    width: VIEW_WIDTH,
-                    height: VIEW_HEIGHT,
+                    width: VIEW_WIDTH * game.view_scale,
+                    height: VIEW_HEIGHT * game.view_scale,
                 },
                 ..OrthographicProjection::default_3d()
             }),
@@ -596,14 +607,28 @@ fn spawn_level(
                     })
                 {
                     let tree_scale = 0.52 + (hash % 7) as f32 * 0.025;
-                    let tree = model(
-                        commands,
-                        lib,
-                        if hash % 3 == 0 { "palm" } else { "tree" },
-                        center,
-                        tree_scale,
-                    );
-                    commands.entity(tree).insert(Foliage { height: tree_scale });
+                    if let Some(forest) = &lib.forest {
+                        forest.spawn(
+                            commands,
+                            if hash % 3 == 0 { 1 } else { 0 },
+                            hash,
+                            center,
+                            tree_scale,
+                        );
+                    } else {
+                        let tree = model(
+                            commands,
+                            lib,
+                            if hash % 3 == 0 { "palm" } else { "tree" },
+                            center,
+                            tree_scale,
+                        );
+                        commands.entity(tree).insert(Foliage { height: tree_scale });
+                    }
+                }
+                if let Some(forest) = &lib.forest {
+                    forest.spawn(commands, 2, hash, center, scale);
+                    continue;
                 }
                 let id = model(commands, lib, &format!("canopy{}", hash % 6), center, scale);
                 commands.entity(id).insert((
@@ -627,6 +652,12 @@ fn spawn_level(
                 continue;
             }
             let name = if hash % 17 == 0 { "bush" } else { "grass" };
+            if name == "bush" {
+                if let Some(forest) = &lib.forest {
+                    forest.spawn(commands, 2, hash, world(p), 0.25 + (hash % 7) as f32 * 0.02);
+                    continue;
+                }
+            }
             model(
                 commands,
                 lib,
@@ -643,13 +674,21 @@ fn spawn_level(
             24 => "rock",
             _ => continue,
         };
-        model(
-            commands,
-            lib,
-            name,
-            world(Point::new(s.x() as f32, s.y as f32)),
-            1.,
-        );
+        let position = world(Point::new(s.x() as f32, s.y as f32));
+        if name != "rock" {
+            if let Some(forest) = &lib.forest {
+                let hash = s.x() as u64 * 73856093 ^ s.y as u64 * 19349663 ^ 1993;
+                forest.spawn(
+                    commands,
+                    if name == "palm" { 1 } else { 2 },
+                    hash,
+                    position,
+                    1.,
+                );
+                continue;
+            }
+        }
+        model(commands, lib, name, position, 1.);
     }
     for (i, b) in b.buildings.iter().enumerate() {
         let e = model(
@@ -792,6 +831,10 @@ fn simulate(
     screen: Res<State<crate::game_flow::GameScreen>>,
     flow: Res<crate::game_flow::Flow>,
 ) {
+    // Keep the scripted scenario at its initial state while Flora prepares its atlases.
+    if game.smoke && game.frames == 0 {
+        return;
+    }
     let cmds = std::mem::take(&mut game.queue);
     if !game.smoke
         && (*screen.get() != crate::game_flow::GameScreen::Playing || flow.paused || flow.options)
@@ -1347,10 +1390,31 @@ fn capture(
     mut game: ResMut<Game>,
     mut exit: MessageWriter<AppExit>,
     #[cfg(not(target_arch = "wasm32"))] offscreen: Option<Res<Offscreen>>,
+    library: Res<Library>,
+    pools: Option<Res<Assets<bevy_flora::TreePool>>>,
+    mut waiting: Local<u32>,
+    impostors: Query<&ViewVisibility, With<MeshMaterial3d<bevy_flora::ImpostorMaterial>>>,
 ) {
+    if game.smoke
+        && library
+            .forest
+            .as_ref()
+            .is_some_and(|forest| pools.as_ref().is_none_or(|pools| !forest.ready(pools)))
+    {
+        *waiting += 1;
+        if *waiting > 1800 {
+            error!("Flora atlas baking did not complete; refusing an incomplete capture");
+            exit.write(AppExit::error());
+        }
+        return;
+    }
     game.frames += 1;
     #[cfg(not(target_arch = "wasm32"))]
     if game.screenshot || game.smoke && !game.benchmark && game.frames == 360 {
+        info!(
+            "Vegetation capture: {} impostors visible in render views",
+            impostors.iter().filter(|visible| visible.get()).count()
+        );
         let _ = std::fs::create_dir_all("tmp");
         commands
             .spawn(offscreen.map_or_else(Screenshot::primary_window, |target| {
@@ -1441,11 +1505,19 @@ fn benchmark(
     time: Res<Time<Real>>,
     entities: Query<Entity>,
     meshes: Query<&Mesh3d>,
+    impostors: Query<&ViewVisibility, With<MeshMaterial3d<bevy_flora::ImpostorMaterial>>>,
     diagnostics: Res<DiagnosticsStore>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if !game.benchmark || state.saved {
         return;
+    }
+    if game.frames == 0 {
+        return;
+    }
+    if state.startup_seconds.is_none() {
+        state.startup_seconds = Some(state.start.elapsed().as_secs_f32());
+        state.start = bevy::platform::time::Instant::now();
     }
     if state.source.is_none() {
         state.source = Some(game.battle.clone());
@@ -1463,6 +1535,9 @@ fn benchmark(
         state.samples.push(time.delta_secs_f64() * 1000.);
         state.max_entities = state.max_entities.max(entities.iter().count());
         state.max_meshes = state.max_meshes.max(meshes.iter().count());
+        state.max_visible_impostors = state
+            .max_visible_impostors
+            .max(impostors.iter().filter(|visible| visible.get()).count());
     }
     if elapsed >= game.benchmark_seconds + 3. {
         state.saved = true;
@@ -1479,7 +1554,7 @@ fn benchmark(
             .filter(|d| d.path().as_str().starts_with("render/"))
             .filter_map(|d| d.smoothed().map(|v| (d.path().as_str().to_string(), v)))
             .collect::<std::collections::BTreeMap<_, _>>();
-        let report = serde_json::json!({"profile":if cfg!(debug_assertions){"dev"}else{"release"},"resolution":[1920,1080],"scenario":"first mission; seed 1993; scripted movement and fire; 3s warmup", "render_path":"offscreen Vulkan; no vsync; excludes desktop compositor", "seconds":game.benchmark_seconds,"scenario_repetitions":state.repetitions,"samples":state.samples.len(),"frame_ms":{"p50":percentile(0.5),"p95":percentile(0.95),"p99":percentile(0.99)},"peak_entities":state.max_entities,"peak_mesh_instances":state.max_meshes,"render_diagnostics":render,"draw_calls":"not available from stock diagnostics; mesh instances are not draw calls"});
+        let report = serde_json::json!({"profile":if cfg!(debug_assertions){"dev"}else{"release"},"resolution":[1920,1080],"scenario":"first mission; seed 1993; scripted movement and fire; 3s warmup", "render_path":"offscreen Vulkan; no vsync; excludes desktop compositor", "vegetation":if game.flora {"flora"} else {"current"},"view_scale":game.view_scale,"startup_seconds":state.startup_seconds,"seconds":game.benchmark_seconds,"scenario_repetitions":state.repetitions,"samples":state.samples.len(),"frame_ms":{"p50":percentile(0.5),"p95":percentile(0.95),"p99":percentile(0.99)},"peak_entities":state.max_entities,"peak_mesh_instances":state.max_meshes,"peak_impostors_visible_in_any_view":state.max_visible_impostors,"render_diagnostics":render,"draw_calls":"not available from stock diagnostics; mesh instances are not draw calls"});
         let _ = std::fs::create_dir_all("tmp");
         match std::fs::write(
             "tmp/benchmark.json",
@@ -1754,8 +1829,8 @@ fn update_camera(
     *transform = Transform::from_translation(focus + CAMERA_BOOM).looking_at(focus, Vec3::Y);
     *projection = Projection::Orthographic(OrthographicProjection {
         scaling_mode: ScalingMode::Fixed {
-            width: VIEW_WIDTH,
-            height: VIEW_HEIGHT,
+            width: VIEW_WIDTH * game.view_scale,
+            height: VIEW_HEIGHT * game.view_scale,
         },
         ..OrthographicProjection::default_3d()
     });
