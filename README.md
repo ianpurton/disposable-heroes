@@ -107,6 +107,7 @@ Optional positional arguments are shown in brackets, in recipe order.
 | Command | Purpose / output |
 | --- | --- |
 | `just` or `just build` | Build the release Linux game. |
+| `just build-web` | Build the release WebGPU game and package it in ignored `dist/web/`. |
 | `just play [game arguments]` | Build and launch the release game. |
 | `just assets-build` | Build the native asset gallery separately. |
 | `just assets-preview [model] [seed]` | Interactive library or selected model; seed defaults to `1993`. |
@@ -127,6 +128,17 @@ The saved viewport frames the library; select a model and press numpad `.` to
 focus it. This optional export uses temporary GLBs and Blender's bundled Python;
 it is separate from the game build and does not change the Rust asset sources.
 
+### Local browser build
+
+Run `just build-web` after fetching fixtures. It requires the Rust
+`wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`).
+The task uses the matching wasm-bindgen CLI, downloading and caching an official
+prebuilt binary on Linux when needed. Output includes the launcher shared with
+releases, WASM/JavaScript, assets and browser-safe game data in ignored `dist/web/`.
+
+Serve it with `python3 -m http.server 8000 --directory dist/web`, then open
+`http://localhost:8000` in a WebGPU-capable browser.
+
 ### Forest rendering
 
 `just play --fresh` uses Flora trees, palms and shrubs. Forest masks, route
@@ -137,12 +149,14 @@ exported assets or external texture scans are required.
 
 Native and browser WebGPU builds share the same forest renderer: runtime-baked
 impostors at the battlefield camera's pitch, with impostor shadows enabled. Both
-prepare the atlases at startup; smoke captures wait for baking, and benchmarks
+prepare the atlases at startup, one variant at a time to limit temporary bake
+cameras to 16; smoke captures wait for baking, and benchmarks
 report preparation separately as `startup_seconds` before a three-second warmup.
 
 Browser builds require WebGPU and an available GPU adapter over HTTPS (or localhost).
 There is no WebGL2 fallback. The launcher reports unsupported browsers or unavailable
-adapters before starting the game. Native builds continue to use the desktop renderer.
+adapters before starting the game. The canvas follows its container size instead
+of applying saved desktop resolutions. Native builds continue to use the desktop renderer.
 
 The asset gallery includes the Flora recipes by default. Select only the forest
 with `just assets-preview flora`, or capture it with

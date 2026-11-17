@@ -4,6 +4,10 @@ default: build
 build:
     cargo build --locked --release -p disposable-heroes --bin disposable-heroes --target x86_64-unknown-linux-gnu
 
+# Package the WebGPU game for local serving in ignored dist/web/.
+build-web:
+    bash scripts/build_web.sh
+
 # Build and play; forward game arguments, for example: just play --fresh.
 play *args:
     cargo run --locked --release -p disposable-heroes --bin disposable-heroes --target x86_64-unknown-linux-gnu -- {{args}}

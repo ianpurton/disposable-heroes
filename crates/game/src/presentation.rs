@@ -137,6 +137,7 @@ impl Plugin for BattlefieldPlugin {
         .add_systems(
             Update,
             (
+                flora::advance_baking,
                 reload,
                 update_camera,
                 unit_views,
@@ -1625,11 +1626,6 @@ fn update_camera(
     let Ok((mut camera, mut transform, mut projection)) = cameras.single_mut() else {
         return;
     };
-    if *screen.get() == crate::game_flow::GameScreen::Recruitment {
-        *transform =
-            Transform::from_xyz(-139., 13., -132.).looking_at(Vec3::new(-150., 1., -150.), Vec3::Y);
-        return;
-    }
     let (size, scale_factor, cursor) = windows
         .single()
         .map(|w| {
@@ -1664,6 +1660,11 @@ fn update_camera(
             .max(UVec2::ONE),
         ..default()
     });
+    if *screen.get() == crate::game_flow::GameScreen::Recruitment {
+        *transform =
+            Transform::from_xyz(-139., 13., -132.).looking_at(Vec3::new(-150., 1., -150.), Vec3::Y);
+        return;
+    }
     if !flow.paused
         && !flow.options
         && *screen.get() == crate::game_flow::GameScreen::Playing

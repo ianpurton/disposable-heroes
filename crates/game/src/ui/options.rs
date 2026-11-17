@@ -1,5 +1,10 @@
 use super::*;
-pub(super) fn view(commands: &mut Commands, root: Entity, settings: &Settings) {
+pub(super) fn view(
+    commands: &mut Commands,
+    root: Entity,
+    settings: &Settings,
+    container_sized: bool,
+) {
     label(commands, root, "OPTIONS", 36.);
     for (title, action) in [
         (
@@ -18,6 +23,9 @@ pub(super) fn view(commands: &mut Commands, root: Entity, settings: &Settings) {
         ("Resolution 1280 / 1920".into(), Action::Resolution),
         ("Back".into(), Action::Options),
     ] {
+        if container_sized && matches!(action, Action::Resolution) {
+            continue;
+        }
         button(commands, root, &title, action);
     }
 }

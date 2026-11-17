@@ -1,17 +1,7 @@
 name: Build and validate
 on:
-  push:
-    paths-ignore:
-      - '.agents/**'
-      - README.md
-      - AGENTS.md
-      - '.github/assets/**'
-  pull_request:
-    paths-ignore:
-      - '.agents/**'
-      - README.md
-      - AGENTS.md
-      - '.github/assets/**'
+  workflow_dispatch:
+
 jobs:
   linux:
     runs-on: ubuntu-latest

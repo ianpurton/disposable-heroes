@@ -186,6 +186,9 @@ fn actions(
         Action::Resolution => {
             settings.width = if settings.width == 1920 { 1280 } else { 1920 };
             for mut w in &mut windows {
+                if w.fit_canvas_to_parent {
+                    continue;
+                }
                 let size = if w.width() > 1280. {
                     (1280, 720)
                 } else {
@@ -218,6 +221,7 @@ fn draw(
     settings: Res<Settings>,
     mut previous: Local<String>,
     cameras: Query<Entity, With<Camera2d>>,
+    windows: Query<&Window>,
 ) {
     if game.smoke {
         return;
@@ -274,7 +278,8 @@ fn draw(
     }
     let root = components::dialog(&mut commands, root, result);
     if flow.options {
-        options::view(&mut commands, root, &settings);
+        let container_sized = windows.iter().any(|w| w.fit_canvas_to_parent);
+        options::view(&mut commands, root, &settings, container_sized);
         return;
     }
     if flow.paused {
@@ -324,6 +329,11 @@ fn apply_audio(settings: Res<Settings>, mut sinks: Query<(&mut AudioSink, Has<Mu
 
 fn apply_window(settings: Res<Settings>, mut windows: Query<&mut Window>) {
     for mut w in &mut windows {
+        // A container-sized canvas owns its resolution; desktop preferences must
+        // not overwrite the size reported by the browser's layout engine.
+        if w.fit_canvas_to_parent {
+            continue;
+        }
         w.resolution
             .set(settings.width as f32, settings.width as f32 * 9. / 16.);
         if settings.fullscreen {

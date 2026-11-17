@@ -5,3 +5,4 @@
 /tmp/
 *.blend1
 __pycache__/
+/dist/
